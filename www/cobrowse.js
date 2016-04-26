@@ -6,11 +6,38 @@ document.addEventListener('DOMContentLoaded', function() {
 	if (inited)
 		return;
 	inited = true;
-	var wnd = window.open("https://dev.ef2f.com/html/viewer.html","viewer","width=400px");
+	var wnd = window.open("viewer.html","viewer","width=400px");
 setTimeout(function(){
 	var maxId=1;
 	var doctype = "";
 	var map = new WeakMap();
+	
+	var remoteCursor;
+	function showRemoteCursor(x,y) {
+		//Check if first cursor
+		if (!remoteCursor)
+		{
+			//Create new element
+			remoteCursor = document.createElement("div");
+			//Set absolute positioning
+			remoteCursor.style["position"] = "absolute";
+			remoteCursor.style["width"] = "150px";
+			remoteCursor.style["height"] = "25px";
+			remoteCursor.style["border"] = "1px black solid";
+			remoteCursor.style["background-color"] = "green";
+			remoteCursor.style["color"] = "white";
+			remoteCursor.style["margin"] = "0px";
+			remoteCursor.style["padding"] = "0px";
+			remoteCursor.style["z-index"] = "99999999999999999999999999";
+			//Set text
+			remoteCursor.innerHTML = "^Remote Cursor";
+			//Insert into
+			document.documentElement.appendChild(remoteCursor);
+		}
+		//Set new position
+		remoteCursor.style["left"] = x + "px";
+		remoteCursor.style["top"] =  y + "px";
+	}
 	
 	function getHTML(node) {
 		//Check if it is a comment
@@ -169,6 +196,10 @@ setTimeout(function(){
 					//Process the added nodes
 					for (var i=0;i<mutation.addedNodes.length;i++)
 					{
+						//Check it is not the remote cursor
+						if (mutation.addedNodes[i]===remoteCursor)
+							//Skipt
+							continue;
 						//Get id for added node
 						var id = map.get(mutation.addedNodes[i]);
 						//If not found
@@ -245,6 +276,18 @@ setTimeout(function(){
 		characterData: true,
 		subtree: true
 	});
+	
+	document.addEventListener ("mousemove", function (event) {
+		var x = event.pageX;
+		var y = event.pageY;
+		var messages=[{
+				m: 12,
+				x: x,
+				y: y
+			}];
+		//POst message
+		wnd.postMessage(JSON.stringify(messages), "*");
+	},true);
 
 	var hovered;
 	document.addEventListener("mouseover", function(e){
@@ -388,6 +431,12 @@ setTimeout(function(){
 						//POst message
 						wnd.postMessage(JSON.stringify(messages), "*");
 					}
+					break;
+				//Mouse cursor
+				case 1:
+					console.log("Mouse cursor",cmd);
+					//Move cursor
+					showRemoteCursor(cmd.x,cmd.y);
 					break;
 			}
 		}
