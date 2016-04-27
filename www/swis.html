@@ -1,0 +1,60 @@
+<script src="swis.js" type="text/javascript"></script>
+<script>
+	var f = new swis.MessageFactory();
+
+	f.appendMessage(swis.MessageType.ChildList,{target:1,
+		previous: 2,
+		next: null,
+		added: [
+			1,"added2",2,"added3"
+		],
+		deleted: [
+			1,2,3,4,5
+		]
+	});
+	f.appendMessage(swis.MessageType.Attributes,{target:2,
+		key: "key",
+		value: "value"
+	});
+	f.appendMessage(swis.MessageType.CharacterData,{target:3,
+		text: "text"
+	});
+	f.appendMessage(swis.MessageType.MouseMove,{target:4,
+		x: 10,
+		y: 20
+	});
+	f.appendMessage(swis.MessageType.MouseOver,{target:5});
+	f.appendMessage(swis.MessageType.Focus,{target:6});
+	f.appendMessage(swis.MessageType.Blur,{target:7})
+	f.appendMessage(swis.MessageType.Input,{target:8,
+		value: "value"
+	});
+	f.appendMessage(swis.MessageType.Resize,{target:9,
+		width: 1000,
+		height: 2000
+	});
+	f.appendMessage(swis.MessageType.Base,{target:10,
+		href: "href"
+	});
+	f.appendMessage(swis.MessageType.CSS,{target:11,
+		href: "href",
+		css : "css"
+	});
+	f.appendMessage(swis.MessageType.Link,{target:11,
+		href: "href"
+	});
+	f.appendMessage(swis.MessageType.MediaQueryList,{target:12,
+		queries: {
+			10: 0,
+			11: 1
+		}
+	});
+	var blob = f.flush();
+	
+	swis.MessageParser.Parse(blob)
+		.then(function(parser){
+			while(parser.hasNext())
+				console.log(parser.next());
+		});
+
+</script>
