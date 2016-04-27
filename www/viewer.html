@@ -1,54 +1,57 @@
 <script>
-	
-	//Reverse map <id,node>
-	var map = {};
-	var reverse = new WeakMap();
-	
-(function(){	
-	var maxId = 1;
-	var maxMediaRuleId = 1;
-	var source;
-	var hovered;
-	
-	
-	//Media rules
-	var mediarules = {};
-	
-	var remoteCursor;
-	function showRemoteCursor(x,y) {
-		//Check if first cursor
-		if (!remoteCursor)
+
+	function createElementFromHTML (html)
+	{
+		//Default wrap
+		var wrap = [0,"",""];
+		// From jquery
+		var wrapMap = {
+			option: [ 1, "<select multiple='multiple'>", "</select>" ],
+			legend: [ 1, "<fieldset>", "</fieldset>" ],
+			area: [ 1, "<map>", "</map>" ],
+			param: [ 1, "<object>", "</object>" ],
+			thead: [ 1, "<table>", "</table>" ],
+			tr: [ 2, "<table><tbody>", "</tbody></table>" ],
+			col: [ 2, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
+			td: [ 3, "<table><tbody><tr>", "</tr></tbody></table>" ]
+		};
+
+		//Check if we need to wrap
+		for (var tag in wrapMap) 
 		{
-			//Create new element
-			remoteCursor = document.createElement("div");
-			//Set absolute positioning
-			remoteCursor.style["position"] = "absolute";
-			remoteCursor.style["width"] = "150px";
-			remoteCursor.style["height"] = "25px";
-			remoteCursor.style["border"] = "1px black solid";
-			remoteCursor.style["background-color"] = "green";
-			remoteCursor.style["color"] = "white";
-			remoteCursor.style["margin"] = "0px";
-			remoteCursor.style["padding"] = "0px";
-			remoteCursor.style["z-index"] = "99999999999999999999999999";
-			//Set text
-			remoteCursor.innerHTML = "^Remote Cursor";
-			//Insert into
-			document.documentElement.appendChild(remoteCursor);
+			//Check if it is this element
+			if (html.substr(1,tag.length).toLowerCase()===tag)
+			{
+				//Store wrap
+				wrap = wrapMap[tag];
+				//Found
+				break;
+			}
 		}
-		//Set new position
-		remoteCursor.style["left"] = x + "px";
-		remoteCursor.style["top"] =  y + "px";
+
+		//Parse
+		var tmp = document.implementation.createHTMLDocument();
+		//Append wrap and parse
+		tmp.body.innerHTML = wrap[1]+html+wrap[2];
+		//Find element
+		var element = tmp.body.childNodes[0];
+		//Unwrap
+		for (var i=0;i<wrap[0];++i)
+			//Get child
+			element = element.childNodes[0];
+		//Return element
+		return element;
 	}
 	
-	function resolveCSSURLs(css,base) {
+	function resolveCSSURLs(css,base) 
+	{
 		var ini = 0;
 		var lower = css.toLowerCase();
 		var output = "";
-		
+
 		//Find first url occurrence
 		var i = lower.indexOf("url(",ini);
-		
+
 		//Replace all
 		while (i!==-1){
 			//Skip url(
@@ -80,189 +83,225 @@
 		return output;
 	}
 	
-
-	function hover(element) {
-		//Check if it was the same
-		if (element!==hovered)
-		{
-			//Unhover
-			if (hovered)
+	function reflect(transport,mirror) 
+	{
+		var remoteCursor;
+		function showRemoteCursor(x,y) {
+			//Check if first cursor
+			if (!remoteCursor)
 			{
-				var el = hovered;
-				//Clear all recurisvelly
-				while (el)
-				{
-					//Remove data
-					if(el.dataset) delete(el.dataset['hover']);
-					//Un hover parent
-					el = el.parentNode;
-				}
+				//Create new element
+				remoteCursor = mirror.createElement("div");
+				//Set absolute positioning
+				remoteCursor.style["position"] = "absolute";
+				remoteCursor.style["width"] = "150px";
+				remoteCursor.style["height"] = "25px";
+				remoteCursor.style["border"] = "1px black solid";
+				remoteCursor.style["background-color"] = "green";
+				remoteCursor.style["color"] = "white";
+				remoteCursor.style["margin"] = "0px";
+				remoteCursor.style["padding"] = "0px";
+				remoteCursor.style["z-index"] = "99999999999999999999999999";
+				//Set text
+				remoteCursor.innerHTML = "^Remote Cursor";
+				//Insert into
+				mirror.documentElement.appendChild(remoteCursor);
 			}
-			//Now hover element and parets
-			if (element) {
-				var el = element;
-				//Set all recurisvelly
-				while (el)
-				{
-					//Set data
-					if(el.dataset) el.dataset['hover']=true;
-					//Un hover parent
-					el = el.parentNode;
-				}
-			}
-			//Set new hovered
-			hovered = element;
+			//Set new position
+			remoteCursor.style["left"] = x + "px";
+			remoteCursor.style["top"] =  y + "px";
 		}
-	}
-	
-	function add(id,element) {
-		//Add element to map
-		map[id] = element;
-		//Add to reverse map also
-		reverse.set(element,id);
-	}
 
-	function replace(id,element) {
-		//Get old
-		var old = map[id];
-		//Delete old from map
-		reverse.delete(old);
-		//Set new value in map
-		map[id] = element;
-		//Add to reverse map also
-		reverse.set(element,id);
-	}
-	//Populate map with ids
-	function populate(element){
-		//Add element to map
-		add(maxId++,element);
-		//For each child node
-		for (var i=0;i<element.childNodes.length;++i)
-		{
-			
-			if (element.childNodes[i].dataset) element.childNodes[i].dataset["swisId"] =maxId;
-			
-			//Ignore doctype
-			if (element.childNodes[i].nodeType!==10)
-				//Get child id
-				populate(element.childNodes[i]);
-		}
-	}
-	
-	function releaseElement(element) {
-		//Get id
-		var id = reverse.get(element);
-		//Add element to map
-		delete(map[id]);
-		//Delete from reverse map
-		reverse.delete(element);
-		//For each child node
-		for (var i=0;i<element.childNodes.length;++i)
-			//Get child
-			releaseElement(element.childNodes[i]);
-	}
-	
-	//Release map with ids
-	function release(id){
-		//Get element
-		var element = map[id];
-		//Add element to map
-		delete(map[id]);
-		//Delete from reverse map
-		reverse.delete(element);
-		//For each child node
-		for (var i=0;i<element.childNodes.length;++i)
-			//Get child
-			releaseElement(element.childNodes[i]);
-	}
-	
-	//Handle media queries and hover on elements
-	function processStyles() {
-		var queries = {};
-		//Now get the styles
-		for (var x = 0; x < document.styleSheets.length; x++) 
-		{
-			var rules = document.styleSheets[x].cssRules;
-			var i = 0;
-			
-			//We are removing items inside the loop
-			while(rules && rules.length && i<rules.length) 
+		//Reverse map <id,node>
+		var map = {};
+		var reverse = new WeakMap();
+		var maxId = 1;
+		var maxMediaRuleId = 1;
+		var hovered;
+
+		//Media rules
+		var mediarules = {};
+
+		function hover(element) {
+			//Check if it was the same
+			if (element!==hovered)
 			{
-				//Check if it is a media rule
-				if (rules[i] instanceof CSSMediaRule)
+				//Unhover
+				if (hovered)
 				{
-					var html = "";
-					//And append all the child styles
-					for (var j = 0;j<rules[i].cssRules.length; j++)
-						//Append HTML
-						html = rules[i].cssRules[j].cssText + "\n";
-					//Create new element
-					var el = document.createElement("style");
-					//Set it to disabled when loaded
-					el.onload = function(){ el.disabled = true; };
-					//Append html styles
-					el.innerHTML = html;
-					//Append to head (Do it async??)
-					document.querySelector("head").appendChild(el).disabled;
-					//Get id for this media rule
-					var id = maxMediaRuleId++;
-					//Append media query
-					mediarules[id] = {
-						element: el,
-						media: rules[i].media.mediaText
-					};
-					//request update
-					queries[id] = rules[i].media.mediaText;
-					//Remove the media rules
-					document.styleSheets[x].removeRule(i);
-				} else if (rules[i] instanceof CSSStyleRule) {
-					//Replace pseudo classes
-					rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
-					//Next
-					i++;
-				} else {
-					//Leave it as it is
-					i++;
+					var el = hovered;
+					//Clear all recurisvelly
+					while (el)
+					{
+						//Remove data
+						if(el.dataset) delete(el.dataset['hover']);
+						//Un hover parent
+						el = el.parentNode;
+					}
 				}
+				//Now hover element and parets
+				if (element) {
+					var el = element;
+					//Set all recurisvelly
+					while (el)
+					{
+						//Set data
+						if(el.dataset) el.dataset['hover']=true;
+						//Un hover parent
+						el = el.parentNode;
+					}
+				}
+				//Set new hovered
+				hovered = element;
 			}
 		}
-		//Send event
-		var messages = [{
-			m: 0,
-			q: queries
-		}];
-		//POst message back to source
-		source.postMessage(JSON.stringify(messages), "*");
-	}
-	
-	
-	
-	window.addEventListener("message", function(message){
-		//Get source
-		source = message.source;
 
-		//Create HTML
-		document.open();
-		document.write(message.data);
-		document.close();
-		
-		//Pupulate ids
-		populate(document);
-		
-		//Process styles
-		processStyles();
-		
-		//Listen for message changes again, as listener has been desroyed 
-		window.addEventListener("message", function(message){
-			//Get list of mutations 
-			var mutations = JSON.parse(message.data);
+		function add(id,element) {
+			//Add element to map
+			map[id] = element;
+			//Add to reverse map also
+			reverse.set(element,id);
+		}
+
+		function replace(id,element) {
+			//Get old
+			var old = map[id];
+			//Delete old from map
+			reverse.delete(old);
+			//Set new value in map
+			map[id] = element;
+			//Add to reverse map also
+			reverse.set(element,id);
+		}
+		//Populate map with ids
+		function populate(element){
+			//Add element to map
+			add(maxId++,element);
+			//For each child node
+			for (var i=0;i<element.childNodes.length;++i)
+			{
+
+				if (element.childNodes[i].dataset) element.childNodes[i].dataset["swisId"] =maxId;
+
+				//Ignore doctype
+				if (element.childNodes[i].nodeType!==10)
+					//Get child id
+					populate(element.childNodes[i]);
+			}
+		}
+
+		function releaseElement(element) {
+			//Get id
+			var id = reverse.get(element);
+			//Add element to map
+			delete(map[id]);
+			//Delete from reverse map
+			reverse.delete(element);
+			//For each child node
+			for (var i=0;i<element.childNodes.length;++i)
+				//Get child
+				releaseElement(element.childNodes[i]);
+		}
+
+		//Release map with ids
+		function release(id){
+			//Get element
+			var element = map[id];
+			//Add element to map
+			delete(map[id]);
+			//Delete from reverse map
+			reverse.delete(element);
+			//For each child node
+			for (var i=0;i<element.childNodes.length;++i)
+				//Get child
+				releaseElement(element.childNodes[i]);
+		}
+
+		//Handle media queries and hover on elements
+		function processStyles() {
+			var queries = {};
+			//Now get the styles
+			for (var x = 0; x < mirror.styleSheets.length; x++) 
+			{
+				var rules = mirror.styleSheets[x].cssRules;
+				var i = 0;
+
+				//We are removing items inside the loop
+				while(rules && rules.length && i<rules.length) 
+				{
+					//Check if it is a media rule
+					if (rules[i] instanceof CSSMediaRule)
+					{
+						var html = "";
+						//And append all the child styles
+						for (var j = 0;j<rules[i].cssRules.length; j++)
+							//Append HTML
+							html = rules[i].cssRules[j].cssText + "\n";
+						//Create new element
+						var el = mirror.createElement("style");
+						//Set it to disabled when loaded
+						el.onload = function(){ el.disabled = true; };
+						//Append html styles
+						el.innerHTML = html;
+						//Append to head (Do it async??)
+						mirror.querySelector("head").appendChild(el).disabled;
+						//Get id for this media rule
+						var id = maxMediaRuleId++;
+						//Append media query
+						mediarules[id] = {
+							element: el,
+							media: rules[i].media.mediaText
+						};
+						//request update
+						queries[id] = rules[i].media.mediaText;
+						//Remove the media rules
+						mirror.styleSheets[x].removeRule(i);
+					} else if (rules[i] instanceof CSSStyleRule) {
+						//Replace pseudo classes
+						rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
+						//Next
+						i++;
+					} else {
+						//Leave it as it is
+						i++;
+					}
+				}
+			}
+			//Send event
+			transport.send({
+				m: 0,
+				q: queries
+			});
+		}
+
+
+		transport.onInit = function(html)
+		{
+			//Clean mirrir before populating it
+			while (mirror.childNodes.length)
+				//Delete it
+				mirror.childNodes[0].remove();
+			//Create HTML
+			mirror.open();
+			mirror.write(html);
+			mirror.close();
+
+			//Pupulate ids
+			populate(mirror);
+
+			//Process styles
+			processStyles();
+		};
+
+		transport.onMessages = function(messages)
+		{	
 			//List of deleted nodes
 			var deleted = {};
 			//For each mutation
-			for (var j=0;j<mutations.length;++j)
+			for (var j=0;j<messages.length;++j)
 			{
 				try {
-					var mutation = mutations[j];
+					var mutation = messages[j];
 					//console.log(mutation);
 					switch(mutation.m)
 					{
@@ -354,7 +393,7 @@
 							//Get target
 							var target = map[mutation.t];
 							//Create new style
-							var style = document.createElement("style");
+							var style = mirror.createElement("style");
 							//Set all attributes
 							for (var k in target.attributes)
 								//Clone in style element
@@ -392,16 +431,16 @@
 							console.log("Resized",mutation);
 							/*
 							//Get viewport
-							var viewport = document.querySelector("meta[name=viewport]");
+							var viewport = mirror.querySelector("meta[name=viewport]");
 							//If not found, create empty one
 							if (!viewport)
 							{
 								//Create it
-								viewport = document.createElement("meta");
+								viewport = mirror.createElement("meta");
 								//Set name
 								viewport.name = "viewport";
 								//Add it to document
-								document.querySelector("head").appendChild(viewport);
+								mirror.querySelector("head").appendChild(viewport);
 							}
 							//Set content
 							viewport.content = "width="+mutation.s[0]+",height="+mutation.s[1];
@@ -412,16 +451,16 @@
 						case 11:
 							console.log("Rebase",mutation);
 							//Get base element
-							var base = document.querySelector("base");
+							var base = mirror.querySelector("base");
 							//Check if it exist already
 							if (!base)
 							{
 								//Craete base element
-								base = document.createElement("base");
+								base = mirror.createElement("base");
 								//Set href to documenbt location
 								base.setAttribute("href", mutation.h);
 								//Append to head in the cloned doc
-								document.querySelector("head").appendChild(base);
+								mirror.querySelector("head").appendChild(base);
 							} else {
 								//JUst change href
 								base.setAttribute("href", mutation.h);
@@ -444,65 +483,66 @@
 			for (var id in deleted)
 				//Release delete node refs
 				release(id);
-		});
-		
-		//Send back mouse position
-		document.addEventListener ("mousemove", function (event) {
-			var x = event.pageX;
-			var y = event.pageY;
-			var messages=[{
-					m: 1,
-					x: x,
-					y: y
-				}];
-			//POst message
-			source.postMessage(JSON.stringify(messages), "*");
-		},true);
-	});
-	
-	function createElementFromHTML (html) {
-		//Default wrap
-		var wrap = [0,"",""];
-		// From jquery
-		var wrapMap = {
-			option: [ 1, "<select multiple='multiple'>", "</select>" ],
-			legend: [ 1, "<fieldset>", "</fieldset>" ],
-			area: [ 1, "<map>", "</map>" ],
-			param: [ 1, "<object>", "</object>" ],
-			thead: [ 1, "<table>", "</table>" ],
-			tr: [ 2, "<table><tbody>", "</tbody></table>" ],
-			col: [ 2, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
-			td: [ 3, "<table><tbody><tr>", "</tr></tbody></table>" ]
 		};
 		
-		//Check if we need to wrap
-		for (var tag in wrapMap) 
-		{
-			//Check if it is this element
-			if (html.substr(1,tag.length).toLowerCase()===tag)
-			{
-				//Store wrap
-				wrap = wrapMap[tag];
-				//Found
-				break;
-			}
-		}
-		
-		//Parse
-		var tmp = document.implementation.createHTMLDocument();
-		//Append wrap and parse
-		tmp.body.innerHTML = wrap[1]+html+wrap[2];
-		//Find element
-		var element = tmp.body.childNodes[0];
-		//Unwrap
-		for (var i=0;i<wrap[0];++i)
-			//Get child
-			element = element.childNodes[0];
-		//Return element
-		return element;
-	};
+		//Send back mouse position
+		mirror.addEventListener ("mousemove", function (event) {
+			//Send message back
+			transport.send({
+				m: 1,
+				x: event.pageX,
+				y: event.pageY
+			});
+		},true);
+	}
+
 	
-	//Remove this script tag from DOM
-	document.removeChild(document.children[0]);
-})();
+
+	var source;
+	var timer;
+	var messages = [];
+	
+	function flush() {
+		//POst message back to source
+		source.postMessage(JSON.stringify(messages), "*");
+		//clean queue
+		messages = [];
+		//Clear timer (jic)
+		clearTimeout (timer);
+		//Dismiss
+		timer = null;
+	}
+	
+	function queue(message) {
+		console.log("queueing",message);
+		//Add message to queue
+		messages.push(message);
+		//If not already scheduled
+		if (!timer)
+			timer = setTimeout(flush,20);
+	}
+	
+	var transport = {
+		onInit : null,
+		onMessage : null,
+		send : function(message) {
+			queue(message);
+		}
+	};
+
+	//Start reflecting DOM	
+	reflect(transport,document);
+	
+	window.addEventListener("message", function(message){
+		//Get source
+		source = message.source;
+		//Init transport
+		transport.onInit(message.data);
+
+		//Listen again fro new messages
+		window.addEventListener("message", function(message){
+			//Init transport
+			transport.onMessages(JSON.parse(message.data));
+		});
+	});
 </script>

@@ -1,16 +1,29 @@
-
-
-/* global Promise */
-var inited = false;
-document.addEventListener('DOMContentLoaded', function() {
-	if (inited)
-		return;
-	inited = true;
-	var wnd = window.open("viewer.html","viewer","width=400px");
-setTimeout(function(){
+function cobrowse(transport,exclude)
+{
 	var maxId=1;
 	var doctype = "";
 	var map = new WeakMap();
+	var timer;
+	var messages = [];
+	
+	function flush() {
+		//Send messages
+		transport.send(messages);
+		//clean queue
+		messages = [];
+		//Clear timer (jic)
+		clearTimeout (timer);
+		//Dismiss
+		timer = null;
+	}
+	
+	function queue(message) {
+		//Add message to queue
+		messages.push(message);
+		//If not already scheduled
+		if (!timer)
+			timer =setTimeout(flush,20);
+	}
 	
 	var remoteCursor;
 	function showRemoteCursor(x,y) {
@@ -60,24 +73,20 @@ setTimeout(function(){
 		//Set handlers
 		req.addEventListener("load", function(){
 			//Check if we have changed
-			var messages=[{
+			queue({
 				m: 7,
 				t: id,
 				h: url,
 				c: this.responseText
-			}];
-			//POst message
-			wnd.postMessage(JSON.stringify(messages), "*");
+			});
 		});
 		req.addEventListener("error", function(error){
 			//We have not been able to get the css, import it
-			var messages=[{
+			queue({
 				m: 8,
 				t: id,
 				h: url
-			}];
-			//POst message
-			wnd.postMessage(JSON.stringify(messages), "*");
+			});
 		});
 		//Load css
 		req.open("GET", url);
@@ -153,7 +162,7 @@ setTimeout(function(){
 	}
 	
 	//Clone DOM
-	var cloned = clone(document,document.cloneNode(0));
+	var cloned = clone(document,document.cloneNode(0),exclude);
 	
 	//Start with the doctype
 	var html = doctype;
@@ -162,13 +171,12 @@ setTimeout(function(){
 		//Append HTML for child node
 		html += getHTML(cloned.childNodes[i]);
 	
-	//PUT html
-	wnd.postMessage(html,"*");//doctype+cloned.documentElement.outerHTML, "*");
+	//PUT Initial html
+	transport.init(html);
 
 	//Listen for changes
 	var observer = new MutationObserver (function (mutations) {
 		var deleted = {};
-		var messages = [];
 		mutations.forEach (function (mutation) {
 			//console.log(mutation);
 			var message;
@@ -207,7 +215,7 @@ setTimeout(function(){
 						{
 							//console.log("created",mutation.addedNodes[i]);
 							//Clone DOM element and add ids
-							var cloned = clone(mutation.addedNodes[i],mutation.addedNodes[i].cloneNode(false));
+							var cloned = clone(mutation.addedNodes[i],mutation.addedNodes[i].cloneNode(false),exclude);
 							//Put element
 							message.a.push(getHTML(cloned));
 						} else {
@@ -257,12 +265,10 @@ setTimeout(function(){
 					break;
 			}
 			//Push message to the queue
-			messages.push(message);
+			queue(message);
 		});
-		//Check we have any
-		if (messages.length)
-			//POst messages
-			wnd.postMessage(JSON.stringify(messages), "*");
+		//Flush
+		flush();
 		//Garbage collect
 		for (var id in deleted)
 			//Remove node from map
@@ -278,15 +284,11 @@ setTimeout(function(){
 	});
 	
 	document.addEventListener ("mousemove", function (event) {
-		var x = event.pageX;
-		var y = event.pageY;
-		var messages=[{
-				m: 12,
-				x: x,
-				y: y
-			}];
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		queue({
+			m: 12,
+			x: event.pageX,
+			y: event.pageY
+		});
 	},true);
 
 	var hovered;
@@ -294,74 +296,60 @@ setTimeout(function(){
 		//Check if we have changed
 		if (hovered!==e.srcElement)
 		{
-			var messages=[{
+			queue({
 				m: 3,
 				t: map.get(e.srcElement)
-			}];
-			//POst message
-			wnd.postMessage(JSON.stringify(messages), "*");
+			});
 		}
 	});
 
 	document.addEventListener("focus", function(e){
 		//Check if we have changed
-		var messages=[{
+		queue({
 			m: 4,
 			t: map.get(e.srcElement)
-		}];
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		});
 	},true);
 
 	document.addEventListener("blur", function(e){
 		//Check if we have changed
-		var messages=[{
+		queue({
 			m: 5,
 			t: map.get(e.srcElement)
-		}];
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		});
 	},true);
 
 	document.addEventListener("input", function(e){
 		//Check if we have changed
-		var messages=[{
+		queue({
 			m: 6,
 			t: map.get(e.srcElement),
 			v: e.srcElement.value
-		}];
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		});
 	},true);
 	
 	 window.addEventListener("resize", function(e){
 		//Check if we have changed
-		var messages=[{
+		queue({
 			m: 10,
 			s: [window.innerWidth,window.innerHeight]
-		}];
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		});
 	},false);
 	
 	//Send initial size
-	var messages=[{
+	queue({
 		m: 10,
 		s: [window.innerWidth,window.innerHeight]
-	}];
-	//POst message
-	wnd.postMessage(JSON.stringify(messages), "*");
+	});
 	
 	//Check if there is a BASE element in the document
 	if (!document.querySelector ("base"))
 	{
 		//Rebase
-		var messages=[{
+		queue({
 			m: 11,
 			h: document.location.href
-		}];
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		});
 	}
 		
 	var mediaQueries = {};
@@ -374,13 +362,10 @@ setTimeout(function(){
 		//Set it
 		matches[mql.id] =  mql.matches;
 		//Send event
-		var messages=[{
+		queue({
 			m: 9,
 			q: matches
-		}];
-	
-		//POst message
-		wnd.postMessage(JSON.stringify(messages), "*");
+		});
 	};
 	
 	//Listen for message changes again, as listener has been desroyed 
@@ -423,13 +408,10 @@ setTimeout(function(){
 					if (matched)
 					{
 						//Send event
-						var messages=[{
+						queue({
 							m: 9,
 							q: matches
-						}];
-
-						//POst message
-						wnd.postMessage(JSON.stringify(messages), "*");
+						});
 					}
 					break;
 				//Mouse cursor
@@ -441,8 +423,30 @@ setTimeout(function(){
 			}
 		}
 	});
-},2000);	
+}
+
+/* global Promise */
+var inited = false;
+document.addEventListener('DOMContentLoaded', function() {
+	if (inited)
+		return;
+	inited = true;
+	var wnd = window.open("viewer.html","viewer","width=400px");
+	setTimeout(function(){
+		cobrowse({
+			init : function (html) {
+				//Send HTML
+				wnd.postMessage(html, "*");
+			},
+			send : function(messages) {
+				//Convert to json and send
+				wnd.postMessage(JSON.stringify(messages), "*");
+			}
+		});
+	},2000);	
 }, false);
+
+
 
 
 	
