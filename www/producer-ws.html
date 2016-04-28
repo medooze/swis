@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>jQuery UI Sortable - Default functionality</title>
+  <link rel="stylesheet" href="http://code.jquery.com/ui/1.11.4/themes/smoothness/jquery-ui.css">
+  <link rel="stylesheet" href="https://jqueryui.com/resources/demos/style.css">
+  <script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+  <script src="http://code.jquery.com/ui/1.11.4/jquery-ui.js"></script>
+  <style>
+  #sortable { list-style-type: none; margin: 0; padding: 0; width: 60%; }
+  #sortable li { margin: 0 3px 3px 3px; padding: 0.4em; padding-left: 1.5em; font-size: 1.4em; height: 18px; }
+  #sortable li span { position: absolute; margin-left: -1.3em; }
+  </style>
+  <style>
+@media (min-width: 400px)  {
+  .mod {
+    background-color: red;
+  }
+}
+@media (orientation: landscape)  {
+  .mod {
+    color: coral;
+  }
+}
+</style>
+<style>
+@media (min-width: 400px)  {
+  .del {
+    background-color: yellow;
+  }
+}
+</style>
+  <script>
+  $(function() {
+    $( "#sortable" ).sortable();
+    $( "#sortable" ).disableSelection();
+  });
+  </script>
+  	<style>
+		body {
+			background-color: blue;
+			color: white;
+		}
+		.red {
+			color: red;
+		}
+		div {
+			border: 1px solid grey;
+			margin-left: 5px;
+		}
+		div:hover {
+			background-color: green;
+		}
+	</style>
+
+	
+</head>
+<body>
+ 
+<ul id="sortable">
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 1</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 2</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 3</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 4</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 5</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 6</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 7</li>
+</ul>
+ 
+ <script>
+			//Dummy
+			var b = 0;
+		</script>
+		<div class="0">
+			<div class="0.0 mod">
+				mod
+				<div class="0.0.0 del">
+					0.0.0 del
+				</div>
+				<div class="0.0.0">
+					0.0.1
+				</div>
+			</div>
+			<div class="0.1">
+				<div class="0.1.0">
+					0.1.0
+				</div>
+				<div class="0.1.1 del">
+					0.1.1 del
+				</div>
+				<div class="0.1.2 del">
+					0.1.2 del
+				</div>
+			</div>
+		</div>
+		<textarea></textarea>
+		<select ><option>a <option>b</select>
+</body>
+</html>
+
+<script src="swis.js"></script>
+<script>
+	setTimeout (function () {
+		var nodes = document.getElementsByClassName ("mod");
+		for (var i=0;i<nodes.length;i++)
+		{
+			var el = document.createElement("div");
+			el.innerHTML = "-added-";
+			nodes[i].insertBefore(el, nodes[i].firstChild);
+		}
+	}, 5000);
+
+
+	var ws = new WebSocket("wss://dev.ef2f.com/cobrowse/3");
+	var transport = {
+		init : function (html) {
+			//Send HTML
+			ws.send(html);
+		},
+		send : function(data) {
+			//Convert to json and send
+			ws.send(data);
+		}
+	};
+	
+	var wnd = window.open("viewer-ws.html","viewer","width=400px");
+	var observer = new swis.Observer(transport);
+	
+	ws.onopen = function() {
+		setTimeout(function(){
+			observer.observe();
+		},5000);
+	};
+
+	ws.onmessage = function(message) {
+		//Process then
+		transport.onmessage(message.data);
+	};
+
+</script>

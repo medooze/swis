@@ -2,7 +2,6 @@
 <script>
 
 	
-
 	var source;
 
 	
@@ -30,26 +29,4 @@
 			transport.onmessage(message.data);
 		});
 	});
-	
-	/*
-	var ws = new WebSocket("wss://dev.ef2f.com/cobrowse/2");
-	ws.binaryType = "arraybuffer";
-	ws.onopen = function(){
-		//Start reflecting DOM	
-		reflect(transport,document);
-	};	
-	
-	ws.onmessage = function(message) {
-		//Check if first message
-		if (!inited)
-		{
-			//Inited now
-			inited = true;
-			//Init transport
-			transport.onInit(String.fromCharCode(message.data));
-		} else {
-			//Process messages
-			transport.onMessages(JSON.parse(String.fromCharCode(message.data)));
-		}
-	}*/
 </script>
