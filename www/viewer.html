@@ -1,55 +1,37 @@
+<script src="swis.js"></script>
 <script>
 
 	
 
-	
-
 	var source;
-	var timer;
-	var messages = [];
-	
-	function flush() {
-		//POst message back to source
-		source.postMessage(JSON.stringify(messages), "*");
-		//clean queue
-		messages = [];
-		//Clear timer (jic)
-		clearTimeout (timer);
-		//Dismiss
-		timer = null;
-	}
-	
-	function queue(message) {
-		console.log("queueing",message);
-		//Add message to queue
-		messages.push(message);
-		//If not already scheduled
-		if (!timer)
-			timer = setTimeout(flush,20);
-	}
+
 	
 	var transport = {
-		onInit : null,
-		onMessage : null,
-		send : function(message) {
-			queue(message);
+		onload : null,
+		onmessage : null,
+		send : function(data) {
+			source.postMessage(data, "*");
 		}
 	};
 
-	var inited = false;
+	var reflector = new swis.Reflector(transport);
 	
-	/*window.addEventListener("message", function(message){
+	
+	window.addEventListener("message", function(message){
+		reflector.reflect(document);
 		//Get source
 		source = message.source;
 		//Init transport
-		transport.onInit(message.data);
+		transport.onload(message.data);
 
 		//Listen again fro new messages
 		window.addEventListener("message", function(message){
 			//Init transport
-			transport.onMessages(JSON.parse(message.data));
+			transport.onmessage(message.data);
 		});
-	});*/
+	});
+	
+	/*
 	var ws = new WebSocket("wss://dev.ef2f.com/cobrowse/2");
 	ws.binaryType = "arraybuffer";
 	ws.onopen = function(){
@@ -69,5 +51,5 @@
 			//Process messages
 			transport.onMessages(JSON.parse(String.fromCharCode(message.data)));
 		}
-	}
+	}*/
 </script>

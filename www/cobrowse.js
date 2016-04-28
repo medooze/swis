@@ -1,7 +1,3 @@
-var MessageType = {};
-
-
-
 /* global Promise */
 /*
 var inited = false;
@@ -32,6 +28,8 @@ window.addEventListener("message",function(message){
 	transrport.onMessage(cmds);
 });																
 */
+
+
 var wnd = window.open("viewer.html","viewer","width=400px");
 var ws = new WebSocket("wss://dev.ef2f.com/cobrowse/2");
 ws.binaryType = "arraybuffer";
@@ -56,8 +54,6 @@ ws.onmessage = function(message) {
 	//Process then
 	transport.onMessage(cmds);
 };
-
-
 
 
 	

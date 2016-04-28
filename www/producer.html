@@ -54,19 +54,7 @@
 		}
 	</style>
 
-	<script src="cobrowse.js"></script>
-	<script>
-	setTimeout (function () {
-		var nodes = document.getElementsByClassName ("mod");
-		for (var i=0;i<nodes.length;i++)
-		{
-			var el = document.createElement("div");
-			el.innerHTML = "-added-";
-			nodes[i].insertBefore(el, nodes[i].firstChild);
-		}
-	}, 5000);
 	
-	</script>
 </head>
 <body>
  
@@ -110,3 +98,39 @@
 		<select ><option>a <option>b</select>
 </body>
 </html>
+
+<script src="swis.js"></script>
+<script>
+	setTimeout (function () {
+		var nodes = document.getElementsByClassName ("mod");
+		for (var i=0;i<nodes.length;i++)
+		{
+			var el = document.createElement("div");
+			el.innerHTML = "-added-";
+			nodes[i].insertBefore(el, nodes[i].firstChild);
+		}
+	}, 5000);
+
+
+	var transport = {
+		init : function (html) {
+			//Send HTML
+			wnd.postMessage(html, "*");
+		},
+		send : function(data) {
+			//Convert to json and send
+			wnd.postMessage(data, "*");
+		}
+	};
+	
+	var wnd = window.open("viewer.html","viewer","width=400px");
+	var observer = new swis.Observer(transport);
+	setTimeout(function(){
+		observer.observe();
+	},2000);	
+
+	window.addEventListener("message",function(message){
+		transport.onmessage(message.data);
+	});	
+
+</script>

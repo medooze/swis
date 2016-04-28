@@ -7,16 +7,18 @@ module.exports = {
 	MessageParser: require("./lib/message/parser.js")
 };
 },{"./lib/message/factory.js":2,"./lib/message/parser.js":3,"./lib/message/type.js":4,"./lib/observer.js":6,"./lib/reflector.js":7}],2:[function(require,module,exports){
-var Type = require("./type.js");
+var MessageType = require("./type.js");
 var ByteBuffer = require("bytebuffer");
 
 function getSize(obj)
 {
-	if (typeof obj === "number")
+	if (typeof obj === "number" || typeof obj === "undefined" || obj === null )
 	{
 		return 4;
 	} else if (typeof obj === "string") {
 		return 4+obj.length*4;
+	} else if (typeof obj === "boolean") {
+		return 1;
 	} else if (Array.isArray(obj)) {
 		var length = 4;
 		for (var i=0;i<obj.length;++i)
@@ -49,7 +51,7 @@ MessageFactory.prototype.appendMessage = function(type,message)
 	//Depending on the type
 	switch (type)
 	{
-		case Type.ChildList:
+		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
 			// next: map.get(mutation.nextSibling),
@@ -78,66 +80,70 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			for (var i=0;i<message.deleted.length;++i)
 				bytebuffer.writeVarint32(message.deleted[i]);
 			break;
-		case Type.Attributes:
+		case MessageType.Attributes:
 			// target: target,
 			// key: mutation.attributeName,
 			// value: mutation.target.getAttribute(mutation.attributeName)
 			bytebuffer.writeVarint32(message.target);
 			bytebuffer.writeVString(message.key);
-			bytebuffer.writeVString(message.value);
+			bytebuffer.writeVString(message.value || "");
 			break;
-		case Type.CharacterData:
+		case MessageType.CharacterData:
 			// target: target,
 			// text: mutation.target.data
 			bytebuffer.writeVarint32(message.target);
-			bytebuffer.writeVString(message.text);
+			bytebuffer.writeVString(message.text || "");
 			break;
-		case Type.MouseMove:
+		case MessageType.MouseMove:
 			// x: event.pageX,
 			// y: event.pageY
 			bytebuffer.writeUint16(message.x);
 			bytebuffer.writeUint16(message.y);
 			break;
-		case Type.MouseOver:
+		case MessageType.MouseOver:
 			// target: target
 			bytebuffer.writeVarint32(message.target);
 			break;
-		case Type.Focus:
+		case MessageType.Focus:
 			// target: target
 			bytebuffer.writeVarint32(message.target);
 			break;
-		case Type.Blur:
+		case MessageType.Blur:
 			// target: target
 			bytebuffer.writeVarint32(message.target);
 			break;
-		case Type.Input:
+		case MessageType.Input:
 			// target: map.get(e.srcElement),
 			// value: e.srcElement.value
 			bytebuffer.writeVarint32(message.target);
-			bytebuffer.writeVString(message.value);
+			bytebuffer.writeVString(message.value|| "");
 			break;
-		case Type.Resize:
+		case MessageType.Resize:
 			// width: window.innerWidth,
 			// height: window.innerHeight
 			bytebuffer.writeUint16(message.width);
 			bytebuffer.writeUint16(message.height);
 			break;
-		case Type.Base:
+		case MessageType.Base:
 			// href: document.location.href
 			bytebuffer.writeVString(message.href);
 			break;
-		case Type.CSS:
+		case MessageType.CSS:
+			// target: target
 			// href: document.location.href
 			// css: this.responseText
+			bytebuffer.writeVarint32(message.target);
 			bytebuffer.writeVString(message.href);
-			bytebuffer.writeVString(message.css);
+			bytebuffer.writeVString(message.css|| "");
 			break;
-		case Type.Link:
+		case MessageType.Link:
+			// target: target
 			// href: document.location.href
+			bytebuffer.writeVarint32(message.target);
 			bytebuffer.writeVString(message.href);
 			break;
-		case Type.MediaQueryList:
-			// queries: [{id,bolean}]
+		case MessageType.MediaQueryRequest:
+			// queries: [{id,media}]
 			// Get media query ids
 			var ids = Object.keys(message.queries);
 			//Write pair list
@@ -146,7 +152,20 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			{
 				var id = parseInt(ids[i]);
 				bytebuffer.writeVarint32(id);
-				bytebuffer.writeUint8(message.queries[id]);
+				bytebuffer.writeVString(message.queries[id]);
+			}
+			break;
+		case MessageType.MediaQueryMatches:
+			// matches: [{id,bolean}]
+			// Get media query ids
+			var ids = Object.keys(message.matches);
+			//Write pair list
+			bytebuffer.writeUint16(ids.length);
+			for (var i=0;i<ids.length;++i)
+			{
+				var id = parseInt(ids[i]);
+				bytebuffer.writeVarint32(id);
+				bytebuffer.writeUint8(message.matches[id]?1:0);
 			}
 			break;
 		default:
@@ -172,8 +191,7 @@ MessageFactory.prototype.flush = function()
 module.exports =  MessageFactory;
 
 },{"./type.js":4,"bytebuffer":8}],3:[function(require,module,exports){
-var Types = require("./types.js");
-var Type  = require("./type.js");
+var MessageType  = require("./type.js");
 var ByteBuffer = require("bytebuffer");
 
 function MessageParser(data)
@@ -205,7 +223,7 @@ MessageParser.prototype.next = function()
 	//Depending on the type
 	switch (type)
 	{
-		case Type.ChildList:
+		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
 			// next: map.get(mutation.nextSibling),
@@ -233,7 +251,7 @@ MessageParser.prototype.next = function()
 			for (var i=0;i<message.deleted.length;++i)
 				message.deleted[i] = bytebuffer.readVarint32();
 			break;
-		case Type.Attributes:
+		case MessageType.Attributes:
 			// target: target,
 			// key: mutation.attributeName,
 			// value: mutation.target.getAttribute(mutation.attributeName)
@@ -241,66 +259,81 @@ MessageParser.prototype.next = function()
 			message.key	= bytebuffer.readVString();
 			message.value	= bytebuffer.readVString();
 			break;
-		case Type.CharacterData:
+		case MessageType.CharacterData:
 			// target: target,
 			// text: mutation.target.data
 			message.target	= bytebuffer.readVarint32();
 			message.text	= bytebuffer.readVString();
 			break;
-		case Type.MouseMove:
+		case MessageType.MouseMove:
 			// x: event.pageX,
 			// y: event.pageY
 			message.x	= bytebuffer.readUint16();
 			message.y	= bytebuffer.readUint16();
 			break;
-		case Type.MouseOver:
+		case MessageType.MouseOver:
 			// target: target
 			message.target	= bytebuffer.readVarint32();
 			break;
-		case Type.Focus:
+		case MessageType.Focus:
 			// target: target
 			message.target	= bytebuffer.readVarint32();
 			break;
-		case Type.Blur:
+		case MessageType.Blur:
 			// target: target
 			message.target	= bytebuffer.readVarint32();
 			break;
-		case Type.Input:
+		case MessageType.Input:
 			// target: map.get(e.srcElement),
 			// value: e.srcElement.value
 			message.target	= bytebuffer.readVarint32();
 			message.value	= bytebuffer.readVString();
 			break;
-		case Type.Resize:
+		case MessageType.Resize:
 			// width: window.innerWidth,
 			// height: window.innerHeight
 			message.width	= bytebuffer.readUint16();
 			message.height	= bytebuffer.readUint16();
 			break;
-		case Type.Base:
+		case MessageType.Base:
 			// href: document.location.href
 			message.href	= bytebuffer.readVString();
 			break;
-		case Type.CSS:
+		case MessageType.CSS:
+			// target: target
 			// href: document.location.href
 			// css: this.responseText
+			message.target	= bytebuffer.readVarint32();
 			message.href	= bytebuffer.readVString();
 			message.css	= bytebuffer.readVString();
 			break;
-		case Type.Link:
+		case MessageType.Link:
+			// target: target
 			// href: document.location.href
+			message.target	= bytebuffer.readVarint32();
 			message.href	= bytebuffer.readVString();
 			break;
-		case Type.MediaQueryList:
-			// queries: [{id,bolean}]
-			//Media queries
+		case MessageType.MediaQueryRequest:
+			// queries: [{id,media}]
+			// Get media query ids
 			message.queries = {};
 			//Get number of items to read
 			var num = bytebuffer.readUint16();
 			//Write pair list
 			for (var i=0;i<num;++i)
 				//Read <id,matched> typle
-				message.queries[bytebuffer.readVarint32()] = bytebuffer.readUint8();
+				message.queries[bytebuffer.readVarint32()] = bytebuffer.readVString();
+			break;
+		case MessageType.MediaQueryMatches:
+			// matches: [{id,bolean}]
+			//Media queries
+			message.matches = {};
+			//Get number of items to read
+			var num = bytebuffer.readUint16();
+			//Write pair list
+			for (var i=0;i<num;++i)
+				//Read <id,matched> typle
+				message.matches[bytebuffer.readVarint32()] = (bytebuffer.readUint8()>0);
 			break;
 		default:
 			//Error
@@ -332,7 +365,7 @@ MessageParser.Parse = function(blob)
 };
 
 module.exports = MessageParser;
-},{"./type.js":4,"./types.js":5,"bytebuffer":8}],4:[function(require,module,exports){
+},{"./type.js":4,"bytebuffer":8}],4:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -358,11 +391,13 @@ module.exports = [
 	"Base",
 	"CSS",
 	"Link",
-	"MediaQueryList"
+	"MediaQueryRequest",
+	"MediaQueryMatches"
 ];
 },{}],6:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
+var MessageParser = require("./message/parser.js");
 
 function Observer(transport)
 {
@@ -386,7 +421,7 @@ Observer.prototype.observe = function(exclude)
 		//Send messages
 		transport.send(factory.flush());
 		//clean queue
-		messages = new MessageFactory();
+		factory = new MessageFactory();
 		//Clear timer (jic)
 		clearTimeout (timer);
 		//Dismiss
@@ -410,6 +445,7 @@ Observer.prototype.observe = function(exclude)
 			//Create new element
 			remoteCursor = document.createElement("div");
 			//Set absolute positioning
+			remoteCursor.style["pointer-events"] = "none";
 			remoteCursor.style["position"] = "absolute";
 			remoteCursor.style["width"] = "150px";
 			remoteCursor.style["height"] = "25px";
@@ -551,6 +587,7 @@ Observer.prototype.observe = function(exclude)
 
 	//Listen for changes
 	this.observer = new MutationObserver (function (mutations) {
+		var handled = {};
 		var deleted = {};
 		mutations.forEach (function (mutation) {
 			//console.log(mutation);
@@ -618,12 +655,26 @@ Observer.prototype.observe = function(exclude)
 					queue(MessageType.ChildList,message);
 					break;
 				case "attributes":
+					//Was it already handled?
+					if (handled[target])
+					{
+						//Check if this attribute was handled
+						if (handled[target].hasOwnProperty(mutation.attributeName))
+							//Don't send duplicated entries
+							return;
+					} else {
+						//Create empty 
+						handled[target] = {};
+					}
+						
 					//Mutaion message
 					queue(MessageType.Attributes,{
 						target	: target,
 						key	: mutation.attributeName,
 						value	: mutation.target.getAttribute(mutation.attributeName)
 					});
+					//Append to handled attributes
+					handled[target][mutation.attributeName] = true;
 					break;
 				case "characterData":
 					//Mutaion message
@@ -663,9 +714,19 @@ Observer.prototype.observe = function(exclude)
 		//Check if we have changed
 		if (hovered!==e.srcElement)
 		{
-			queue(MessageType.MouseOver,{
-				target: map.get(e.srcElement)
-			});
+			var target = map.get(e.srcElement)
+			//Check if it is tracked
+			if (target)
+			{
+				//Send event
+				queue(MessageType.MouseOver,{
+					target: target
+				});
+				//Store hovered
+				hovered = e.srcElement;
+			} else {
+				//TODO: How do we skip remote cursor to get hovered?
+			}
 		}
 	});
 
@@ -695,27 +756,23 @@ Observer.prototype.observe = function(exclude)
 		//Check if we have changed
 		queue(MessageType.Resize,{
 			width: window.innerWidth,
-			heigth: window.innerHeight
+			height: window.innerHeight
 		});
 	},false);
 	
 	//Send initial size
 	queue(MessageType.Resize,{
 		width: window.innerWidth,
-		heigth: window.innerHeight
+		height: window.innerHeight
 	});
 	
 	//Check if there is a BASE element in the document
 	if (!document.querySelector ("base"))
-	{
 		//Rebase
-		queue(MessageType.Resize,{
+		queue(MessageType.Base,{
 			href: document.location.href
 		});
-	}
-		
-	var mediaQueries = {};
-	
+
 	var mediaQueryListener = function(event) {
 		//Get mql
 		var mql =  event.srcElement;
@@ -724,63 +781,76 @@ Observer.prototype.observe = function(exclude)
 		//Set it
 		matches[mql.id] =  mql.matches;
 		//Send event
-		queue(MessageType.MediaQueryList,{
-			queries: matches
+		queue(MessageType.MediaQueryMatches,{
+			matches: matches
 		});
 	};
 	
 	//Listen for message changes again, as listener has been desroyed 
-	transport.onMessage = function(cmds){
-		
-		//For each mutation
-		for (var j=0;j<cmds.length;++j)
-		{
-			var cmd = cmds[j];
-			
-			//Check command
-			switch(cmd.m)
+	transport.onmessage = function(blob)
+	{	
+		//Create parser
+		MessageParser.Parse(blob)
+			.then(function(parser)
 			{
-				//Add media queries
-				case 0:
-					console.log("Media query match",cmd);
-					var matched = false;
-					var matches = {};
-					//For all media queries
-					for (var k in cmd.q)
+				//For each message
+				while(parser.hasNext())
+				{		
+
+					//Get nexr parsed message
+					var parsed = parser.next();
+					//get type
+					var type = parsed.type;
+					//Get message
+					var message = parsed.message;
+
+					//console.log(message);
+					switch(type)
 					{
-						//Create media query
-						var mql = window.matchMedia(cmd.q[k]);
-						//Set id
-						mql.id = k;
-						//If it is matched
-						if (mql.matches) 
-						{
-							//Push it
-							matches[k] = true;
-							//At least one matched
-							matched = true;
-						}
-						
-						//Listen for changes
-						mql.addListener(mediaQueryListener);
+						//Add media queries
+						case MessageType.MediaQueryRequest:
+							var matched = false;
+							var matches = {};
+							//For all media queries
+							for (var k in message.queries)
+							{
+								//Create media query
+								var mql = window.matchMedia(message.queries[k]);
+								//Set id
+								mql.id = k;
+								//If it is matched
+								if (mql.matches) 
+								{
+									//Push it
+									matches[k] = true;
+									//At least one matched
+									matched = true;
+								}
+
+								//Listen for changes
+								mql.addListener(mediaQueryListener);
+							}
+							//If one matched
+							if (matched)
+							{
+								//Send event
+								queue(MessageType.MediaQueryMatches,{
+									matches: matches
+								});
+							}
+							break;
+						//Mouse cursor
+						case MessageType.MouseMove:
+							//Move cursor
+							showRemoteCursor(message.x,message.y);
+							break;
 					}
-					//If one matched
-					if (matched)
-					{
-						//Send event
-						queue(MessageType.MediaQueryList,{
-							queries: matches
-						});
-					}
-					break;
-				//Mouse cursor
-				case 1:
-					console.log("Mouse cursor",cmd);
-					//Move cursor
-					showRemoteCursor(cmd.x,cmd.y);
-					break;
-			}
-		}
+				}
+			})
+			.catch(function(error){
+				console.error(error);
+			});
+	
 	};
 };
 
@@ -793,8 +863,9 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./message/factory.js":2,"./message/type.js":4}],7:[function(require,module,exports){
+},{"./message/factory.js":2,"./message/parser.js":3,"./message/type.js":4}],7:[function(require,module,exports){
 var MessageType = require("./message/type.js");
+var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
 
 function createElementFromHTML (html)
@@ -888,6 +959,8 @@ function Reflector(transport)
 	this.reverse = new WeakMap();
 	//Media rules
 	this.mediarules = {};
+	//The message factory
+	this.factory =  new MessageFactory(); 
 }
 	
 Reflector.prototype.reflect = function(mirror) 
@@ -900,6 +973,7 @@ Reflector.prototype.reflect = function(mirror)
 			//Create new element
 			remoteCursor = mirror.createElement("div");
 			//Set absolute positioning
+			remoteCursor.style["pointer-events"] = "none";
 			remoteCursor.style["position"] = "absolute";
 			remoteCursor.style["width"] = "150px";
 			remoteCursor.style["height"] = "25px";
@@ -927,6 +1001,31 @@ Reflector.prototype.reflect = function(mirror)
 	var reverse = this.reverse;
 	var mediarules = this.mediarules;
 	var transport = this.transport;
+	
+	
+	var factory = this.factory;
+	var timer;
+	
+	function flush() {
+		//Send messages
+		transport.send(factory.flush());
+		//clean queue
+		factory = new MessageFactory();
+		//Clear timer (jic)
+		clearTimeout (timer);
+		//Dismiss
+		timer = null;
+	}
+	
+	function queue(type,message) {
+		//Add message to queue
+		factory.appendMessage(type,message);
+		//If not already scheduled
+		if (!timer) 
+			//Flush in 20ms
+			timer = setTimeout(flush,20);
+	}
+	
 	
 	var maxId = 1;
 	var maxMediaRuleId = 1;
@@ -1078,14 +1177,13 @@ Reflector.prototype.reflect = function(mirror)
 			}
 		}
 		//Send event
-		transport.send({
-			m: 0,
-			q: queries
+		queue(MessageType.MediaQueryRequest,{
+			queries: queries
 		});
 	}
 
 
-	transport.onInit = function(html)
+	transport.onload = function(html)
 	{
 		//Clean mirrir before populating it
 		while (mirror.childNodes.length)
@@ -1101,9 +1199,19 @@ Reflector.prototype.reflect = function(mirror)
 
 		//Process styles
 		processStyles();
+		//Send back mouse position
+		this.mouselistener = function (event) {
+			//Send message back
+			queue(MessageType.MouseMove, {
+				x: event.pageX,
+				y: event.pageY
+			});
+		};
+		//Listen mouse events
+		mirror.addEventListener ("mousemove",this.mouselistener,true);
 	};
 
-	transport.onMessages = function(blob)
+	transport.onmessage = function(blob)
 	{	
 		//Create parser
 		MessageParser.Parse(blob)
@@ -1119,99 +1227,99 @@ Reflector.prototype.reflect = function(mirror)
 						var parsed = parser.next();
 						//get type
 						var type = parsed.type;
-						//Get mutation
-						var mutation = parsed.mutation;
+						//Get message
+						var message = parsed.message;
 						
-						//console.log(mutation);
+						//console.log(message);
 						switch(type)
 						{
-							case MessageType.ChildListarget:
-								console.log("ChildList",mutation);
+							case MessageType.ChildList:
+								console.log("ChildList",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Get previous
-								var previous = map[mutation.p];
+								var previous = map[message.previous];
 								//Get next
-								var next = map[mutation.n];
+								var next = map[message.next];
 								//Deleted elements
-								for (var i=0;i<mutation.d.length;i++)
+								for (var i=0;i<message.deleted.length;i++)
 								{
 									//Add to the deleted ones
-									deleted[mutation.d[i]] = true;
+									deleted[message.deleted[i]] = true;
 									//Remove node
-									map[mutation.d[i]].remove();
+									map[message.deleted[i]].remove();
 								}
 								//Added elements
-								for (var i=0;i<mutation.a.length;i++)
+								for (var i=0;i<message.added.length;i++)
 								{
 									//Check if it is an id or a new element
-									if (typeof mutation.a[i] === "string")
+									if (typeof message.added[i] === "string")
 									{
 										//Create node from HTML
-										var node = createElementFromHTML(mutation.a[i]);
+										var node = createElementFromHTML(message.added[i]);
 										//Pupulate it
 										populate(node);
 										//Add
 										target.insertBefore(node,next);
 									} else {
 										//Delete from deleted (jic)
-										delete(deleted[mutation.a[i]]);
+										delete(deleted[message.added[i]]);
 										//Add it
-										target.insertBefore(map[mutation.a[i]],next);
+										target.insertBefore(map[message.added[i]],next);
 									}
 								}
 								break;
 							case MessageType.Attributes:
-								console.log("Atrribute",mutation);
+								console.log("Atrribute",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Set data
-								target.setAttribute(mutation.k,mutation.v);
+								target.setAttribute(message.key,message.value);
 								break;
 							case MessageType.CharacterData:
-								console.log("CharData",mutation);
+								console.log("CharData",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Set data
-								target.data = mutation.d;
+								target.data = message.text;
 								break;
 							//Hovered
 							case MessageType.MouseOver:
-								console.log("Hover",mutation);
+								console.log("Hover",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Hover target
 								hover(target);
 								break;	
 							//Focus
 							case MessageType.Focus:
-								console.log("Focus",mutation);
+								console.log("Focus",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Focus
 								target.focus();
 								break;	
 							//Blur
 							case MessageType.Blur:
-								console.log("Blur",mutation);
+								console.log("Blur",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Blur focus
 								target.blur();
 								break;
 							//input
 							case MessageType.Input:
-								console.log("Input",mutation);
+								console.log("Input",message);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Set value
-								target.value = mutation.v;
+								target.value = message.value;
 								break;
 							//Set exteranl CSS
 							case MessageType.CSS:
-								console.log("External CSS content",mutation.t);
+								console.log("External CSS content",message.target);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Create new style
 								var style = mirror.createElement("style");
 								//Set all attributes
@@ -1219,36 +1327,36 @@ Reflector.prototype.reflect = function(mirror)
 									//Clone in style element
 									style[k] = target[k];
 								//Set css
-								style.innerHTML = resolveCSSURLs(mutation.c,mutation.h);
+								style.innerHTML = resolveCSSURLs(message.css,message.href);
 								//Replace in parent node the target by element
 								target.parentNode.replaceChild(style,target);
 								//Set the  new element in map
-								replace(mutation.t,style);
+								replace(message.target,style);
 								//Process styles on next run
 								setTimeout(processStyles,0);
 								//Reset
 								break;
 							//External css fallback
 							case MessageType.Link:
-								console.log("External CSS link",mutation.t);
+								console.log("External CSS link",message.target);
 								//Get target
-								var target = map[mutation.t];
+								var target = map[message.target];
 								//Process styles on load
 								target.onload = processStyles;
 								//Set href
-								target.href = mutation.h;
+								target.href = message.href;
 								break;
 							//Queries match
-							case MessageType.MediaQueryList:
-								console.log("Queries match",mutation);
+							case MessageType.MediaQueryMatches:
+								console.log("Queries match",message);
 								//For all changes
-								for (var id in mutation.q)
+								for (var id in message.matches)
 									//Enable/disable associated element
-									mediarules[id].element.disabled = !mutation.q[id];
+									mediarules[id].element.disabled = !message.matches[id];
 								break;
 							//Resized
 							case MessageType.Resize:
-								console.log("Resized",mutation);
+								console.log("Resized",message);
 								/*
 								//Get viewport
 								var viewport = mirror.querySelector("meta[name=viewport]");
@@ -1265,11 +1373,11 @@ Reflector.prototype.reflect = function(mirror)
 								//Set content
 								viewport.content = "width="+mutation.s[0]+",height="+mutation.s[1];
 								*/
-							       window.resizeTo(mutation.s[0],mutation.s[1]);
+							       window.resizeTo(message.width,message.height);
 							       break;
 							//Rebase
 							case MessageType.Base:
-								console.log("Rebase",mutation);
+								console.log("Rebase",message);
 								//Get base element
 								var base = mirror.querySelector("base");
 								//Check if it exist already
@@ -1278,22 +1386,22 @@ Reflector.prototype.reflect = function(mirror)
 									//Craete base element
 									base = mirror.createElement("base");
 									//Set href to documenbt location
-									base.setAttribute("href", mutation.h);
+									base.setAttribute("href", message.href);
 									//Append to head in the cloned doc
 									mirror.querySelector("head").appendChild(base);
 								} else {
 									//JUst change href
-									base.setAttribute("href", mutation.h);
+									base.setAttribute("href", message.href);
 								}
 								break;
 							//Mouse cursor
-							case 12:
-								console.log("Mouse cursor",mutation);
+							case MessageType.MouseMove:
+								console.log("Mouse cursor",message);
 								//Move cursor
-								showRemoteCursor(mutation.x,mutation.y);
+								showRemoteCursor(message.x,message.y);
 								break;
 							default:
-								console.log("unknown mutation",mutation);
+								console.log("unknown mutation",message);
 						}
 					} catch (e) {
 						console.error(e);
@@ -1308,18 +1416,6 @@ Reflector.prototype.reflect = function(mirror)
 				console.error(error);
 			});
 	};
-
-	//Send back mouse position
-	this.mouselistener = function (event) {
-		//Send message back
-		transport.send({
-			m: 1,
-			x: event.pageX,
-			y: event.pageY
-		});
-	};
-	//Listen mose events
-	mirror.addEventListener ("mousemove",this.mouselistener,true);
 };
 
 Reflector.prototype.stop = function()
@@ -1334,7 +1430,7 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./message/parser.js":3,"./message/type.js":4}],8:[function(require,module,exports){
+},{"./message/factory.js":2,"./message/parser.js":3,"./message/type.js":4}],8:[function(require,module,exports){
 /*
  Copyright 2013-2014 Daniel Wirtz <dcode@dcode.io>
 

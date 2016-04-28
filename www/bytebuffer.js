@@ -125,7 +125,7 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// href: document.location.href
 			buffer.writeVString(message.href);
 			break;
-		case Type.MediaQueryList:
+		case Type.MediaQueryMatches:
 			// queries: [{id,bolean}]
 			// Get media query ids
 			var ids = Object.keys(message.queries);
@@ -169,7 +169,7 @@ var TypeArray = [
 	"Base",
 	"CSS",
 	"Link",
-	"MediaQueryList"
+	"MediaQueryMatches"
 ];
 
 var Type =  {};

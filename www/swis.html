@@ -43,8 +43,14 @@
 	f.appendMessage(swis.MessageType.Link,{target:11,
 		href: "href"
 	});
-	f.appendMessage(swis.MessageType.MediaQueryList,{target:12,
+	f.appendMessage(swis.MessageType.MediaQueryRequest,{
 		queries: {
+			10: "media0",
+			11: "media1"
+		}
+	});
+	f.appendMessage(swis.MessageType.MediaQueryMatches,{
+		matches: {
 			10: 0,
 			11: 1
 		}
