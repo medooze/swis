@@ -13,46 +13,17 @@
 		reflector.reflect(document);
 	};
 
-	var loaded = false;
 	var inited = false;
-	var pending = [];
 	ws.onmessage = function(message) {
 		
-		if (!loaded) 
+		if (!inited) 
 		{
-			//Init transport
-				transport.onload(message.data);
-			/*
-			// Initialize a new instance of the FileReader class.
-		       var reader = new FileReader();
-		       // Called when the read operation is successfully completed.
-		       reader.onload = function () {
-				//Init transport
-				transport.onload(this.result);
-				//Inited
-				inited = true;
-				//Push pending updates
-				for (var i=0;i<pending.length;++i)
-					//Push
-					transport.onmessage(pending[i]);
-				//Clean pending
-				pending = null;
-		       };
-		       // Starts reading the contents of the specified blob.
-		       reader.readAsBinaryString(message.data);
-		       */
-		       //Loaded
-		       loaded = true;
+			transport.onload(message.data);
 		       //Inited
 		       inited = true;
-		       
 		} else {
-			if (inited)
-				//Process then
-				transport.onmessage(message.data);
-			else
-				//Pending update
-				pending.push(message.data);
+			//Process then
+			transport.onmessage(message.data);
 		}
 		
 	};

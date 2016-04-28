@@ -712,9 +712,9 @@ Observer.prototype.observe = function(exclude)
 	var hovered;
 	document.addEventListener("mouseover", function(e){
 		//Check if we have changed
-		if (hovered!==e.srcElement)
+		if (hovered!==e.target)
 		{
-			var target = map.get(e.srcElement)
+			var target = map.get(e.target)
 			//Check if it is tracked
 			if (target)
 			{
@@ -723,7 +723,7 @@ Observer.prototype.observe = function(exclude)
 					target: target
 				});
 				//Store hovered
-				hovered = e.srcElement;
+				hovered = e.target;
 			} else {
 				//TODO: How do we skip remote cursor to get hovered?
 			}
@@ -733,22 +733,22 @@ Observer.prototype.observe = function(exclude)
 	document.addEventListener("focus", function(e){
 		//Check if we have changed
 		queue(MessageType.Focus,{
-			target: map.get(e.srcElement)
+			target: map.get(e.target || e.target)
 		});
 	},true);
 
 	document.addEventListener("blur", function(e){
 		//Check if we have changed
 		queue(MessageType.Blur,{
-			target: map.get(e.srcElement)
+			target: map.get(e.target)
 		});
 	},true);
 
 	document.addEventListener("input", function(e){
 		//Check if we have changed
 		queue(MessageType.Input,{
-			target: map.get(e.srcElement),
-			value: e.srcElement.value
+			target: map.get(e.target),
+			value: e.target.value
 		});
 	},true);
 	
@@ -775,7 +775,7 @@ Observer.prototype.observe = function(exclude)
 
 	var mediaQueryListener = function(event) {
 		//Get mql
-		var mql =  event.srcElement;
+		var mql =  event.target || event;
 		//Create matched
 		var matches =  {};
 		//Set it
