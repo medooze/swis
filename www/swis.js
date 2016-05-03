@@ -1,4 +1,307 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.swis = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+function EventEmitter() {
+  this._events = this._events || {};
+  this._maxListeners = this._maxListeners || undefined;
+}
+module.exports = EventEmitter;
+
+// Backwards-compat with node 0.10.x
+EventEmitter.EventEmitter = EventEmitter;
+
+EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._maxListeners = undefined;
+
+// By default EventEmitters will print a warning if more than 10 listeners are
+// added to it. This is a useful default which helps finding memory leaks.
+EventEmitter.defaultMaxListeners = 10;
+
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!isNumber(n) || n < 0 || isNaN(n))
+    throw TypeError('n must be a positive number');
+  this._maxListeners = n;
+  return this;
+};
+
+EventEmitter.prototype.emit = function(type) {
+  var er, handler, len, args, i, listeners;
+
+  if (!this._events)
+    this._events = {};
+
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events.error ||
+        (isObject(this._events.error) && !this._events.error.length)) {
+      er = arguments[1];
+      if (er instanceof Error) {
+        throw er; // Unhandled 'error' event
+      }
+      throw TypeError('Uncaught, unspecified "error" event.');
+    }
+  }
+
+  handler = this._events[type];
+
+  if (isUndefined(handler))
+    return false;
+
+  if (isFunction(handler)) {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        len = arguments.length;
+        args = new Array(len - 1);
+        for (i = 1; i < len; i++)
+          args[i - 1] = arguments[i];
+        handler.apply(this, args);
+    }
+  } else if (isObject(handler)) {
+    len = arguments.length;
+    args = new Array(len - 1);
+    for (i = 1; i < len; i++)
+      args[i - 1] = arguments[i];
+
+    listeners = handler.slice();
+    len = listeners.length;
+    for (i = 0; i < len; i++)
+      listeners[i].apply(this, args);
+  }
+
+  return true;
+};
+
+EventEmitter.prototype.addListener = function(type, listener) {
+  var m;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events)
+    this._events = {};
+
+  // To avoid recursion in the case that type === "newListener"! Before
+  // adding it to the listeners, first emit "newListener".
+  if (this._events.newListener)
+    this.emit('newListener', type,
+              isFunction(listener.listener) ?
+              listener.listener : listener);
+
+  if (!this._events[type])
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  else if (isObject(this._events[type]))
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  else
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+
+  // Check for listener leak
+  if (isObject(this._events[type]) && !this._events[type].warned) {
+    var m;
+    if (!isUndefined(this._maxListeners)) {
+      m = this._maxListeners;
+    } else {
+      m = EventEmitter.defaultMaxListeners;
+    }
+
+    if (m && m > 0 && this._events[type].length > m) {
+      this._events[type].warned = true;
+      console.error('(node) warning: possible EventEmitter memory ' +
+                    'leak detected. %d listeners added. ' +
+                    'Use emitter.setMaxListeners() to increase limit.',
+                    this._events[type].length);
+      if (typeof console.trace === 'function') {
+        // not supported in IE 10
+        console.trace();
+      }
+    }
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  var fired = false;
+
+  function g() {
+    this.removeListener(type, g);
+
+    if (!fired) {
+      fired = true;
+      listener.apply(this, arguments);
+    }
+  }
+
+  g.listener = listener;
+  this.on(type, g);
+
+  return this;
+};
+
+// emits a 'removeListener' event iff the listener was removed
+EventEmitter.prototype.removeListener = function(type, listener) {
+  var list, position, length, i;
+
+  if (!isFunction(listener))
+    throw TypeError('listener must be a function');
+
+  if (!this._events || !this._events[type])
+    return this;
+
+  list = this._events[type];
+  length = list.length;
+  position = -1;
+
+  if (list === listener ||
+      (isFunction(list.listener) && list.listener === listener)) {
+    delete this._events[type];
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+
+  } else if (isObject(list)) {
+    for (i = length; i-- > 0;) {
+      if (list[i] === listener ||
+          (list[i].listener && list[i].listener === listener)) {
+        position = i;
+        break;
+      }
+    }
+
+    if (position < 0)
+      return this;
+
+    if (list.length === 1) {
+      list.length = 0;
+      delete this._events[type];
+    } else {
+      list.splice(position, 1);
+    }
+
+    if (this._events.removeListener)
+      this.emit('removeListener', type, listener);
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  var key, listeners;
+
+  if (!this._events)
+    return this;
+
+  // not listening for removeListener, no need to emit
+  if (!this._events.removeListener) {
+    if (arguments.length === 0)
+      this._events = {};
+    else if (this._events[type])
+      delete this._events[type];
+    return this;
+  }
+
+  // emit removeListener for all listeners on all events
+  if (arguments.length === 0) {
+    for (key in this._events) {
+      if (key === 'removeListener') continue;
+      this.removeAllListeners(key);
+    }
+    this.removeAllListeners('removeListener');
+    this._events = {};
+    return this;
+  }
+
+  listeners = this._events[type];
+
+  if (isFunction(listeners)) {
+    this.removeListener(type, listeners);
+  } else {
+    // LIFO order
+    while (listeners.length)
+      this.removeListener(type, listeners[listeners.length - 1]);
+  }
+  delete this._events[type];
+
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  var ret;
+  if (!this._events || !this._events[type])
+    ret = [];
+  else if (isFunction(this._events[type]))
+    ret = [this._events[type]];
+  else
+    ret = this._events[type].slice();
+  return ret;
+};
+
+EventEmitter.listenerCount = function(emitter, type) {
+  var ret;
+  if (!emitter._events || !emitter._events[type])
+    ret = 0;
+  else if (isFunction(emitter._events[type]))
+    ret = 1;
+  else
+    ret = emitter._events[type].length;
+  return ret;
+};
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+
+},{}],2:[function(require,module,exports){
 module.exports = {
 	Observer : require("./lib/observer.js"),
 	Reflector: require("./lib/reflector.js"),
@@ -6,7 +309,7 @@ module.exports = {
 	MessageFactory: require("./lib/message/factory.js"),
 	MessageParser: require("./lib/message/parser.js")
 };
-},{"./lib/message/factory.js":2,"./lib/message/parser.js":3,"./lib/message/type.js":4,"./lib/observer.js":6,"./lib/reflector.js":7}],2:[function(require,module,exports){
+},{"./lib/message/factory.js":3,"./lib/message/parser.js":4,"./lib/message/type.js":5,"./lib/observer.js":7,"./lib/reflector.js":8}],3:[function(require,module,exports){
 var MessageType = require("./type.js");
 var ByteBuffer = require("bytebuffer");
 
@@ -51,6 +354,12 @@ MessageFactory.prototype.appendMessage = function(type,message)
 	//Depending on the type
 	switch (type)
 	{
+		case MessageType.HTML:
+			// href: document.location.href
+			// html: document.innerHTML
+			bytebuffer.writeVString(message.href);
+			bytebuffer.writeVString(message.html);
+			break;
 		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
@@ -190,7 +499,7 @@ MessageFactory.prototype.flush = function()
 
 module.exports =  MessageFactory;
 
-},{"./type.js":4,"bytebuffer":8}],3:[function(require,module,exports){
+},{"./type.js":5,"bytebuffer":9}],4:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("bytebuffer");
 
@@ -223,6 +532,13 @@ MessageParser.prototype.next = function()
 	//Depending on the type
 	switch (type)
 	{
+		case MessageType.HTML:
+			// target: target
+			// href: document.location.href
+			// html: document.innerHTML
+			message.href	= bytebuffer.readVString();
+			message.html	= bytebuffer.readVString();
+			break;
 		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
@@ -365,7 +681,7 @@ MessageParser.Parse = function(blob)
 };
 
 module.exports = MessageParser;
-},{"./type.js":4,"bytebuffer":8}],4:[function(require,module,exports){
+},{"./type.js":5,"bytebuffer":9}],5:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -376,9 +692,10 @@ for (var i = 0; i<Types.length; ++i)
 	Type[Types[i]] = i;
 
 module.exports = Type;
-},{"./types.js":5}],5:[function(require,module,exports){
+},{"./types.js":6}],6:[function(require,module,exports){
 // Observer -> Reflector messages
 module.exports = [
+	"HTML",
 	"ChildList",
 	"Attributes",
 	"CharacterData",
@@ -394,21 +711,30 @@ module.exports = [
 	"MediaQueryRequest",
 	"MediaQueryMatches"
 ];
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
+
+var EventEmitter = require('events').EventEmitter;
+var inherits = require('inherits');
 
 function Observer(transport)
 {
 	this.transport = transport;
 	this.map = new WeakMap();
 	this.factory =  new MessageFactory(); 
+	//Make us an event emitter
+	EventEmitter.call(this);
 }
+
+//Inherit from event emitter
+inherits(Observer, EventEmitter);
 
 Observer.prototype.observe = function(exclude)
 {
 	//Load objects from this
+	var self = this;
 	var transport = this.transport;
 	var map = this.map;
 	var factory = this.factory;
@@ -435,34 +761,6 @@ Observer.prototype.observe = function(exclude)
 		if (!timer) 
 			//Flush in 20ms
 			timer = setTimeout(flush,20);
-	}
-	
-	var remoteCursor;
-	function showRemoteCursor(x,y) {
-		//Check if first cursor
-		if (!remoteCursor)
-		{
-			//Create new element
-			remoteCursor = document.createElement("div");
-			//Set absolute positioning
-			remoteCursor.style["pointer-events"] = "none";
-			remoteCursor.style["position"] = "absolute";
-			remoteCursor.style["width"] = "150px";
-			remoteCursor.style["height"] = "25px";
-			remoteCursor.style["border"] = "1px black solid";
-			remoteCursor.style["background-color"] = "green";
-			remoteCursor.style["color"] = "white";
-			remoteCursor.style["margin"] = "0px";
-			remoteCursor.style["padding"] = "0px";
-			remoteCursor.style["z-index"] = "99999999999999999999999999";
-			//Set text
-			remoteCursor.innerHTML = "^Remote Cursor";
-			//Insert into
-			document.documentElement.appendChild(remoteCursor);
-		}
-		//Set new position
-		remoteCursor.style["left"] = x + "px";
-		remoteCursor.style["top"] =  y + "px";
 	}
 	
 	function getHTML(node) {
@@ -582,9 +880,15 @@ Observer.prototype.observe = function(exclude)
 		//Append HTML for child node
 		html += getHTML(cloned.childNodes[i]);
 	
-	//PUT Initial html
-	transport.init(html);
-
+	//Set initial HTML message
+	queue(MessageType.HTML,{
+		href: document.location.href,
+		html: html
+	});
+	
+	//Send inmediatelly
+	flush();
+		
 	//Listen for changes
 	this.observer = new MutationObserver (function (mutations) {
 		var handled = {};
@@ -615,10 +919,6 @@ Observer.prototype.observe = function(exclude)
 					//Process the added nodes
 					for (var i=0;i<mutation.addedNodes.length;i++)
 					{
-						//Check it is not the remote cursor
-						if (mutation.addedNodes[i]===remoteCursor)
-							//Skipt
-							continue;
 						//Get id for added node
 						var id = map.get(mutation.addedNodes[i]);
 						//If not found
@@ -842,7 +1142,7 @@ Observer.prototype.observe = function(exclude)
 						//Mouse cursor
 						case MessageType.MouseMove:
 							//Move cursor
-							showRemoteCursor(message.x,message.y);
+							self.emit("remotecursormove",{x: message.x,y: message.y});
 							break;
 					}
 				}
@@ -863,10 +1163,13 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./message/factory.js":2,"./message/parser.js":3,"./message/type.js":4}],7:[function(require,module,exports){
+},{"./message/factory.js":3,"./message/parser.js":4,"./message/type.js":5,"events":1,"inherits":11}],8:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
+
+var EventEmitter = require('events').EventEmitter;
+var inherits = require('inherits');
 
 function createElementFromHTML (html)
 {
@@ -961,42 +1264,20 @@ function Reflector(transport)
 	this.mediarules = {};
 	//The message factory
 	this.factory =  new MessageFactory(); 
+	//Make us an event emitter
+	EventEmitter.call(this);
 }
-	
+
+//Inherit from event emitter
+inherits(Reflector, EventEmitter);
+
 Reflector.prototype.reflect = function(mirror) 
 {
-	var remoteCursor;
-	function showRemoteCursor(x,y) {
-		//Check if first cursor
-		if (!remoteCursor)
-		{
-			//Create new element
-			remoteCursor = mirror.createElement("div");
-			//Set absolute positioning
-			remoteCursor.style["pointer-events"] = "none";
-			remoteCursor.style["position"] = "absolute";
-			remoteCursor.style["width"] = "150px";
-			remoteCursor.style["height"] = "25px";
-			remoteCursor.style["border"] = "1px black solid";
-			remoteCursor.style["background-color"] = "green";
-			remoteCursor.style["color"] = "white";
-			remoteCursor.style["margin"] = "0px";
-			remoteCursor.style["padding"] = "0px";
-			remoteCursor.style["z-index"] = "99999999999999999999999999";
-			//Set text
-			remoteCursor.innerHTML = "^Remote Cursor";
-			//Insert into
-			mirror.documentElement.appendChild(remoteCursor);
-		}
-		//Set new position
-		remoteCursor.style["left"] = x + "px";
-		remoteCursor.style["top"] =  y + "px";
-	}
-	
 	//Store mirror
 	this.mirror = mirror;
 
 	//Get variables from this
+	var self = this;
 	var map = this.map;
 	var reverse = this.reverse;
 	var mediarules = this.mediarules;
@@ -1183,7 +1464,7 @@ Reflector.prototype.reflect = function(mirror)
 	}
 
 
-	transport.onload = function(html)
+	function init(href,html)
 	{
 		//Clean mirrir before populating it
 		while (mirror.childNodes.length)
@@ -1209,6 +1490,8 @@ Reflector.prototype.reflect = function(mirror)
 		};
 		//Listen mouse events
 		mirror.addEventListener ("mousemove",this.mouselistener,true);
+		//Fire inited
+		self.emit("init",{href:href});
 	};
 
 	transport.onmessage = function(blob)
@@ -1233,6 +1516,11 @@ Reflector.prototype.reflect = function(mirror)
 						//console.log(message);
 						switch(type)
 						{
+							case MessageType.HTML:
+								console.log("HTML",message);
+								//Init
+								init(message.href,message.html);
+								break;
 							case MessageType.ChildList:
 								console.log("ChildList",message);
 								//Get target
@@ -1357,24 +1645,9 @@ Reflector.prototype.reflect = function(mirror)
 							//Resized
 							case MessageType.Resize:
 								console.log("Resized",message);
-								/*
-								//Get viewport
-								var viewport = mirror.querySelector("meta[name=viewport]");
-								//If not found, create empty one
-								if (!viewport)
-								{
-									//Create it
-									viewport = mirror.createElement("meta");
-									//Set name
-									viewport.name = "viewport";
-									//Add it to document
-									mirror.querySelector("head").appendChild(viewport);
-								}
-								//Set content
-								viewport.content = "width="+mutation.s[0]+",height="+mutation.s[1];
-								*/
-							       window.resizeTo(message.width,message.height);
-							       break;
+								//Event
+								self.emit("resize",{width: message.width, htight: message.height});
+								break;
 							//Rebase
 							case MessageType.Base:
 								console.log("Rebase",message);
@@ -1398,7 +1671,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.MouseMove:
 								console.log("Mouse cursor",message);
 								//Move cursor
-								showRemoteCursor(message.x,message.y);
+								self.emit("remotecursormove",{x: message.x,y: message.y});
 								break;
 							default:
 								console.log("unknown mutation",message);
@@ -1430,7 +1703,7 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./message/factory.js":2,"./message/parser.js":3,"./message/type.js":4}],8:[function(require,module,exports){
+},{"./message/factory.js":3,"./message/parser.js":4,"./message/type.js":5,"events":1,"inherits":11}],9:[function(require,module,exports){
 /*
  Copyright 2013-2014 Daniel Wirtz <dcode@dcode.io>
 
@@ -5178,7 +5451,7 @@ module.exports = Reflector;
     return ByteBuffer;
 });
 
-},{"long":9}],9:[function(require,module,exports){
+},{"long":10}],10:[function(require,module,exports){
 /*
  Copyright 2013 Daniel Wirtz <dcode@dcode.io>
  Copyright 2009 The Closure Library Authors. All Rights Reserved.
@@ -6409,5 +6682,30 @@ module.exports = Reflector;
     return Long;
 });
 
-},{}]},{},[1])(1)
+},{}],11:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}]},{},[2])(2)
 });

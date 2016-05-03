@@ -113,10 +113,6 @@
 
 
 	var transport = {
-		init : function (html) {
-			//Send HTML
-			wnd.postMessage(html, "*");
-		},
 		send : function(data) {
 			//Convert to json and send
 			wnd.postMessage(data, "*");
@@ -133,4 +129,33 @@
 		transport.onmessage(message.data);
 	});	
 
+	var remoteCursor;
+	observer.on("remotecursormove",function(data){
+		//Check if first cursor
+		if (!remoteCursor)
+		{
+			//Create new element
+			remoteCursor = document.createElement("div");
+			//Set absolute positioning
+			remoteCursor.style["pointer-events"] = "none";
+			remoteCursor.style["position"] = "absolute";
+			remoteCursor.style["width"] = "150px";
+			remoteCursor.style["height"] = "25px";
+			remoteCursor.style["border"] = "1px black solid";
+			remoteCursor.style["background-color"] = "green";
+			remoteCursor.style["color"] = "white";
+			remoteCursor.style["margin"] = "0px";
+			remoteCursor.style["padding"] = "0px";
+			remoteCursor.style["z-index"] = "99999999999999999999999999";
+			//Set text
+			remoteCursor.innerHTML = "^Remote Cursor";
+			//Insert into
+			document.documentElement.appendChild(remoteCursor);
+		}
+		//Set new position
+		remoteCursor.style["left"] = data.x + "px";
+		remoteCursor.style["top"] =  data.y + "px";
+	});
+
+	
 </script>
