@@ -9,31 +9,35 @@
 			source.postMessage(data, "*");
 		}
 	};
-
+	//Create iframe	
+	var iframe = document.createElement("iframe");
+	//Append it 
+	document.documentElement.appendChild(iframe);
+	//Get mirror
+	var mirror = iframe.contentWindow.document;
+		
 	var reflector = new swis.Reflector(transport);
 	
 	window.addEventListener("message", function(message){
-		reflector.reflect(document);
-		//Get source
-		source = message.source;
+		//If first time
+		if (!source)
+		{
+			//Start reflecting on mirror
+			reflector.reflect(mirror);
+			//Get source
+			source = message.source;
+		}
 		//Init transport
 		transport.onmessage(message.data);
 	});
 	
-	reflector.on("init",function(data){
-		//Listen again fro new messages
-		window.addEventListener("message", function(message){
-			//Init transport
-			transport.onmessage(message.data);
-		});
-	});
 	
 	reflector.on("remotecursormove",function(data){
 		//Check if first cursor
 		if (!remoteCursor)
 		{
 			//Create new element
-			remoteCursor = document.createElement("div");
+			remoteCursor = mirror.createElement("div");
 			//Set absolute positioning
 			remoteCursor.style["pointer-events"] = "none";
 			remoteCursor.style["position"] = "absolute";
@@ -48,10 +52,15 @@
 			//Set text
 			remoteCursor.innerHTML = "^Remote Cursor";
 			//Insert into
-			document.documentElement.appendChild(remoteCursor);
+			mirror.documentElement.appendChild(remoteCursor);
 		}
 		//Set new position
 		remoteCursor.style["left"] = data.x + "px";
 		remoteCursor.style["top"] =  data.y + "px";
+	});
+	
+	reflector.on("resize",function(data){
+		iframe.width = data.width;
+		iframe.height = data.height;
 	});
 </script>
