@@ -2,6 +2,11 @@
 <script>
 	var f = new swis.MessageFactory();
 
+	f.appendMessage(swis.MessageType.HTML,{
+		href : 'about:blank',
+		html : "<html></html>"
+	});
+	
 	f.appendMessage(swis.MessageType.ChildList,{target:1,
 		previous: 2,
 		next: null,
