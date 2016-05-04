@@ -3177,6 +3177,7 @@ function Observer(transport)
 	this.transport = transport;
 	this.map = new WeakMap();
 	this.factory =  new MessageFactory(); 
+	this.mediaqueries = [];
 	//Make us an event emitter
 	EventEmitter.call(this);
 }
@@ -3464,15 +3465,15 @@ Observer.prototype.observe = function(exclude)
 		subtree: true
 	});
 	
-	document.addEventListener ("mousemove", function (event) {
+	document.addEventListener ("mousemove", (this.onmousemove = function (event) {
 		queue(MessageType.MouseMove,{
 			x: event.pageX,
 			y: event.pageY
 		});
-	},true);
+	}),true);
 
 	var hovered;
-	document.addEventListener("mouseover", function(e){
+	document.addEventListener("mouseover", (this.onmouseover = function(e){
 		//Check if we have changed
 		if (hovered!==e.target)
 		{
@@ -3490,37 +3491,37 @@ Observer.prototype.observe = function(exclude)
 				//TODO: How do we skip remote cursor to get hovered?
 			}
 		}
-	});
+	}),true);
 
-	document.addEventListener("focus", function(e){
+	document.addEventListener("focus", (this.onfocus = function(e){
 		//Check if we have changed
 		queue(MessageType.Focus,{
 			target: map.get(e.target || e.target)
 		});
-	},true);
+	}),true);
 
-	document.addEventListener("blur", function(e){
+	document.addEventListener("blur", (this.onblur = function(e){
 		//Check if we have changed
 		queue(MessageType.Blur,{
 			target: map.get(e.target)
 		});
-	},true);
+	}),true);
 
-	document.addEventListener("input", function(e){
+	document.addEventListener("input", (this.oninput = function(e){
 		//Check if we have changed
 		queue(MessageType.Input,{
 			target: map.get(e.target),
 			value: e.target.value
 		});
-	},true);
+	}),true);
 	
-	 window.addEventListener("resize", function(e){
+	 window.addEventListener("resize", (this.onresize = function(e){
 		//Check if we have changed
 		queue(MessageType.Resize,{
 			width: window.innerWidth,
 			height: window.innerHeight
 		});
-	},false);
+	}),false);
 	
 	//Send initial size
 	queue(MessageType.Resize,{
@@ -3535,7 +3536,8 @@ Observer.prototype.observe = function(exclude)
 			href: document.location.href
 		});
 
-	var mediaQueryListener = function(event) {
+	//Listener for media query changes
+	this.mediaQueryListener = function(event) {
 		//Get mql
 		var mql =  event.target || event;
 		//Create matched
@@ -3588,9 +3590,10 @@ Observer.prototype.observe = function(exclude)
 									//At least one matched
 									matched = true;
 								}
-
+								//Push it to the list
+								self.mediaqueries.push(mql);
 								//Listen for changes
-								mql.addListener(mediaQueryListener);
+								mql.addListener(self.mediaQueryListener);
 							}
 							//If one matched
 							if (matched)
@@ -3618,10 +3621,25 @@ Observer.prototype.observe = function(exclude)
 
 Observer.prototype.stop = function()
 {
+	//Stop mutation observer
 	this.observer.disconnect();
-	//TODO: remove the other listeners
+	//remove media query listeners
+	for (var i=0;i<this.mediaqueries.length;i++)
+		//Stop listener
+		this.mediaqueries[i].removeListener(this.mediaQueryListener);
+	
+	//Remove DOM event listeners
+	document.removeEventListener("mousemove", this.onmousemove ,true);
+	document.removeEventListener("mouseover", this.onmouseover, true);
+	document.removeEventListener("focus", this.onfocus, true);
+	document.removeEventListener("blur", this.onblur, true);
+	document.removeEventListener("input", this.oninput, true);
+	window.removeEventListener("resize", this.onresize , true);
+	
+	//remove maps
 	this.map = null;
 	this.factory = null;
+	this.mediaqueries = null;
 };
 
 module.exports = Observer;
@@ -3942,16 +3960,15 @@ Reflector.prototype.reflect = function(mirror)
 
 		//Process styles
 		processStyles();
-		//Send back mouse position
-		this.mouselistener = function (event) {
+		
+		//Listen mouse events
+		mirror.addEventListener ("mousemove",(this.onmousemove = function (event) {
 			//Send message back
 			queue(MessageType.MouseMove, {
 				x: event.pageX,
 				y: event.pageY
 			});
-		};
-		//Listen mouse events
-		mirror.addEventListener ("mousemove",this.mouselistener,true);
+		}),true);
 		//Fire inited
 		self.emit("init",{href:href});
 	};
@@ -4161,7 +4178,7 @@ Reflector.prototype.stop = function()
 	//Media rules
 	this.mediarules = {};
 	//Remove listener
-	this.mirror.removeEventListener(this.mouselistener);
+	this.mirror.removeEventListener(this.onmousemove);
 };
 
 module.exports = Reflector;
