@@ -3255,6 +3255,13 @@ Observer.prototype.observe = function(exclude)
 		req.send();
 	}
 	
+	function matches(node,selector) {
+		if (node.matches)	return node.matches(selector);
+		if (node.msmatches)	return node.msmatches(selector);
+		if (node.webkitmatches)return node.webkitmatches(selector);
+		return false;
+	}
+	
 	function clone(element,cloned,exclude){
 		//Add element to map
 		map.set(element,maxId++);
@@ -3291,12 +3298,7 @@ Observer.prototype.observe = function(exclude)
 				//Ignore
 				doctype = "<!DOCTYPE html>";
 			//Exclude selectors
-			} else if (!exclude || (
-					(child.matches && !child.matches(exclude)) &&
-					(child.msmatches && !child.msmatches(exclude)) &&
-					(child.webkitmatches && !child.webkitmatches(exclude))
-			))
-			{
+			} else if (!(exclude && matches(child,exclude))) {
 				//Clone child
 				var clonedchild = child.cloneNode(false);
 				//Remove HREF from anchors
@@ -3377,8 +3379,15 @@ Observer.prototype.observe = function(exclude)
 						//If not found
 						if (!id)
 						{
+							//Get node
+							var child = mutation.addedNodes[i];
+							//Ensure we don't have to exclude it
+							//We don't need to look recursively on parents because if they were already excluded, it will not have id
+							if (exclude && matches(child,exclude))
+								//Skip this
+								continue;
 							//Clone DOM element and add ids
-							var cloned = clone(mutation.addedNodes[i],mutation.addedNodes[i].cloneNode(false),exclude);
+							var cloned = clone(child,child.cloneNode(false),exclude);
 							//Put element
 							message.added.push(getHTML(cloned));
 						} else {

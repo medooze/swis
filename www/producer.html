@@ -122,7 +122,7 @@
 	var wnd = window.open("viewer.html","viewer","width=400px");
 	var observer = new swis.Observer(transport);
 	setTimeout(function(){
-		observer.observe();
+		observer.observe(".cursor");
 	},2000);	
 
 	window.addEventListener("message",function(message){
@@ -136,6 +136,8 @@
 		{
 			//Create new element
 			remoteCursor = document.createElement("div");
+			//Set class
+			remoteCursor.className = "cursor";
 			//Set absolute positioning
 			remoteCursor.style["pointer-events"] = "none";
 			remoteCursor.style["position"] = "absolute";
