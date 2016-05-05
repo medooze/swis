@@ -2787,6 +2787,7 @@ function getSize(obj)
 function MessageFactory()
 {
 	this.parts = [];
+	this.size = 0;
 }
 
 MessageFactory.prototype.appendMessage = function(type,message) 
@@ -2930,24 +2931,64 @@ MessageFactory.prototype.appendMessage = function(type,message)
 				bytebuffer.writeUint8(message.matches[id]?1:0);
 			}
 			break;
+		case MessageType.SelectionChange:
+			// anchorNode: map.get(selection.target)
+			// anchorOffset: selection.anchorOffset
+			// isCollapsed: selection.isCollapsed
+			// startContainer: map.get(selection.getRangeAt(0).startContainer)
+			// startOffset: selection.getRangeAt(0).startOffset
+			// endContainer:map.get(selection.getRangeAt(0).endContainer)
+			// endOffset: selection.getRangeAt(0).endOffset
+			bytebuffer.writeVarint32(message.anchorNode || 0);
+			bytebuffer.writeVarint32(message.anchorOffset);
+			bytebuffer.writeByte(message.isCollapsed ? 1 : 0);
+			bytebuffer.writeVarint32(message.startContainer || 0);
+			bytebuffer.writeVarint32(message.startOffset);
+			bytebuffer.writeVarint32(message.endContainer || 0);
+			bytebuffer.writeVarint32(message.endOffset);
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
 	}
 	//End it
 	bytebuffer.flip();
+	//Get array
+	var buffer = bytebuffer.toArrayBuffer(true);
 	//Push part
-	this.parts.push(bytebuffer.toArrayBuffer(true));
+	this.parts.push(buffer);
+	//Inc size
+	this.size += buffer.byteLength;
 };
 
-MessageFactory.prototype.flush = function() 
+MessageFactory.prototype.flush = function(useBlob)
 {
-	//Create blob with parts
-	var blob =  new Blob(this.parts);
+	var data;
+	//Check if we can return a blob directly
+	if (useBlob) 
+	{
+		//Create blob with parts
+		data =  new Blob(this.parts);
+	} else {
+		//Create new array
+		var offset = 0;
+		var data = new ArrayBuffer(this.size);
+		var buffer = new Uint8Array(data);
+		//Append each one
+		for (var i=0;i<this.parts.length;i++)
+		{
+			//Append
+			buffer.set(new Uint8Array(this.parts[i]),offset);
+			//Increase size
+			offset += this.parts[i].byteLength;
+		}
+	}
 	//Clear parts
 	this.parts = [];
+	//clear size
+	this.size = 0;
 	//return blob
-	return blob;
+	return data;
 };
 
 module.exports =  MessageFactory;
@@ -3104,6 +3145,22 @@ MessageParser.prototype.next = function()
 				//Read <id,matched> typle
 				message.matches[bytebuffer.readVarint32()] = (bytebuffer.readUint8()>0);
 			break;
+		case MessageType.SelectionChange:
+			// anchorNode: map.get(selection.target)
+			// anchorOffset: selection.anchorOffset
+			// isCollapsed: selection.isCollapsed
+			// startContainer: map.get(selection.getRangeAt(0).startContainer)
+			// startOffset: selection.getRangeAt(0).startOffset
+			// endContainer:map.get(selection.getRangeAt(0).endContainer)
+			// endOffset: selection.getRangeAt(0).endOffset
+			message.anchorNode = bytebuffer.readVarint32();
+			message.anchorOffset = bytebuffer.readVarint32();
+			message.isCollapsed = bytebuffer.readByte();
+			message.startContainer = bytebuffer.readVarint32();
+			message.startOffset = bytebuffer.readVarint32();
+			message.endContainer = bytebuffer.readVarint32();
+			message.endOffset = bytebuffer.readVarint32();
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3115,22 +3172,32 @@ MessageParser.prototype.next = function()
 	};
 };
 
-MessageParser.Parse = function(blob)
+MessageParser.Parse = function(data)
 {
-	//Return a new promise that will be resolve with the parser object
-	return new Promise(function(resolve,reject){
-		 // Initialize a new instance of the FileReader class.
-		var reader = new FileReader();
-		// Called when the read operation is successfully completed.
-		reader.onload = function () {
-		    //Create callback and resolve
-		    resolve(new MessageParser(this.result));
-		};
-		// On error
-		reader.onerror = reject;
-		// Starts reading the contents of the specified blob.
-		reader.readAsArrayBuffer(blob);
-	});
+	//Check if it is a blob
+	if (data instanceof Blob)
+		//Return a new promise that will be resolve with the parser object
+		return new Promise(function(resolve,reject){
+			 // Initialize a new instance of the FileReader class.
+			var reader = new FileReader();
+			// Called when the read operation is successfully completed.
+			reader.onload = function () {
+			    //Create callback and resolve
+			    resolve(new MessageParser(this.result));
+			};
+			// On error
+			reader.onerror = reject;
+			// Starts reading the contents of the specified blob.
+			reader.readAsArrayBuffer(data);
+		});
+	else if (data instanceof ArrayBuffer)
+		//Return a promise
+		return Promise.resolve(new MessageParser(data));
+	else if (data.buffer instanceof ArrayBuffer)
+		//Return a promise
+		return Promise.resolve(new MessageParser(data.buffer));
+	else 
+		throw new Error("Data is neither a Blob or an ArrayBuffer");
 };
 
 module.exports = MessageParser;
@@ -3162,7 +3229,8 @@ module.exports = [
 	"CSS",
 	"Link",
 	"MediaQueryRequest",
-	"MediaQueryMatches"
+	"MediaQueryMatches",
+	"SelectionChange"
 ];
 },{}],8:[function(require,module,exports){
 var MessageType = require("./message/type.js");
@@ -3172,12 +3240,17 @@ var MessageParser = require("./message/parser.js");
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
 
-function Observer(transport)
+function Observer(transport,options)
 {
 	this.transport = transport;
 	this.map = new WeakMap();
+	this.reverse = {};
 	this.factory =  new MessageFactory(); 
 	this.mediaqueries = [];
+	//Set defaults
+	this.options = Object.assign({
+		blob: true
+	},options);
 	//Make us an event emitter
 	EventEmitter.call(this);
 }
@@ -3191,6 +3264,7 @@ Observer.prototype.observe = function(exclude)
 	var self = this;
 	var transport = this.transport;
 	var map = this.map;
+	var reverse = this.reverse;
 	var factory = this.factory;
 	
 	var maxId=1;
@@ -3199,7 +3273,7 @@ Observer.prototype.observe = function(exclude)
 	
 	function flush() {
 		//Send messages
-		transport.send(factory.flush());
+		transport.send(factory.flush(self.options.blob));
 		//clean queue
 		factory = new MessageFactory();
 		//Clear timer (jic)
@@ -3264,8 +3338,11 @@ Observer.prototype.observe = function(exclude)
 	}
 	
 	function clone(element,cloned,exclude){
-		//Add element to map
-		map.set(element,maxId++);
+		//Gen new id
+		var id = maxId++;
+		//Add element to maps
+		map.set(element,id);
+		reverse[id] = element;
 		//For each child node
 		for (var i=0;i<element.childNodes.length;++i)
 		{
@@ -3278,8 +3355,11 @@ Observer.prototype.observe = function(exclude)
 				var clonedchild = document.createElement("script");
 				//Append to cloned element
 				cloned.appendChild(clonedchild);
+				//Gen new id
+				var childId = maxId++;
 				//Add element to map
-				map.set(child,maxId++);
+				map.set(child,childId);
+				reverse[childId] = child;
 			//Emmbed css
 			} else if (child.nodeName==="LINK" && (child.getAttribute("rel") || "").toLowerCase()==="stylesheet") {
 				//Clone child
@@ -3288,10 +3368,11 @@ Observer.prototype.observe = function(exclude)
 				clonedchild.removeAttribute("href");
 				//Append to cloned element
 				cloned.appendChild(clonedchild);
-				//Get id 
+				//Gen new id
 				var childId = maxId++;
 				//Add element to map
 				map.set(child,childId);
+				reverse[childId] = child;
 				//Get external css
 				getExternalStyle(childId,child.getAttribute("href"));
 			//Ignore DOCTYPE
@@ -3453,8 +3534,11 @@ Observer.prototype.observe = function(exclude)
 		flush();
 		//Garbage collect
 		for (var id in deleted)
+		{
 			//Remove node from map
 			map.delete(deleted[id]);
+			delete(reverse[id]);
+		}
 	});
 
 	// pass in the target node, as well as the observer options
@@ -3477,7 +3561,7 @@ Observer.prototype.observe = function(exclude)
 		//Check if we have changed
 		if (hovered!==e.target)
 		{
-			var target = map.get(e.target)
+			var target = map.get(e.target);
 			//Check if it is tracked
 			if (target)
 			{
@@ -3514,6 +3598,24 @@ Observer.prototype.observe = function(exclude)
 			value: e.target.value
 		});
 	}),true);
+	
+	document.addEventListener("selectionchange", (this.onselectionchange = function(e) {
+		//Get selection
+		var selection = document.getSelection();
+		//Get range
+		var range = selection.getRangeAt(0);
+		//Check if we have changed
+		queue(MessageType.SelectionChange,{
+			anchorNode: map.get(selection.anchorNode),
+			anchorOffset: selection.anchorOffset,
+			isCollapsed: selection.isCollapsed,
+			startContainer: map.get(range.startContainer),
+			startOffset: range.startOffset,
+			endContainer: map.get(range.endContainer),
+			endOffset: range.endOffset
+		});
+	}), true);
+
 	
 	 window.addEventListener("resize", (this.onresize = function(e){
 		//Check if we have changed
@@ -3609,7 +3711,23 @@ Observer.prototype.observe = function(exclude)
 							//Move cursor
 							self.emit("remotecursormove",{x: message.x,y: message.y});
 							break;
-					}
+						//Selection change
+						case MessageType.SelectionChange:
+							//console.log("Selection change",message);
+							//Trigger selection change
+							self.emit("remoteselectionchange",{
+								anchorNode: reverse[message.anchorNode],
+								anchorOffset: message.anchorOffset,
+								isCollapsed: message.isCollapsed,
+								startContainer: reverse[message.startContainer],
+								startOffset: message.startOffset,
+								endContainer: reverse[message.endContainer],
+								endOffset: message.endOffset
+							});
+							break;
+						default:
+							console.error("unknown message",message);
+					}	
 				}
 			})
 			.catch(function(error){
@@ -3634,6 +3752,7 @@ Observer.prototype.stop = function()
 	document.removeEventListener("focus", this.onfocus, true);
 	document.removeEventListener("blur", this.onblur, true);
 	document.removeEventListener("input", this.oninput, true);
+	document.removeEventListener("selectionchange", this.onselectionchange, true);
 	window.removeEventListener("resize", this.onresize , true);
 	
 	//remove maps
@@ -3734,16 +3853,20 @@ function resolveCSSURLs(css,base)
 	return output;
 }
 
-function Reflector(transport)
+function Reflector(transport,options)
 {
 	this.transport = transport;
-	//Reverse map <id,node>
-	this.map = {};
-	this.reverse = new WeakMap();
+	//Map and reverse map
+	this.map = new WeakMap();
+	this.reverse = {};
 	//Media rules
 	this.mediarules = {};
 	//The message factory
 	this.factory =  new MessageFactory(); 
+	//Set defaults
+	this.options = Object.assign({
+		blob: true
+	},options);
 	//Make us an event emitter
 	EventEmitter.call(this);
 }
@@ -3758,8 +3881,8 @@ Reflector.prototype.reflect = function(mirror)
 
 	//Get variables from this
 	var self = this;
-	var map = this.map;
 	var reverse = this.reverse;
+	var map = this.map;
 	var mediarules = this.mediarules;
 	var transport = this.transport;
 	
@@ -3769,7 +3892,7 @@ Reflector.prototype.reflect = function(mirror)
 	
 	function flush() {
 		//Send messages
-		transport.send(factory.flush());
+		transport.send(factory.flush(self.options.blob));
 		//clean queue
 		factory = new MessageFactory();
 		//Clear timer (jic)
@@ -3827,30 +3950,29 @@ Reflector.prototype.reflect = function(mirror)
 	}
 
 	function add(id,element) {
-		//Add element to map
-		map[id] = element;
+		//Add element to reverse
+		reverse[id] = element;
 		//Add to reverse map also
-		reverse.set(element,id);
+		map.set(element,id);
 	}
 
 	function replace(id,element) {
 		//Get old
-		var old = map[id];
-		//Delete old from map
-		reverse.delete(old);
-		//Set new value in map
-		map[id] = element;
+		var old = reverse[id];
+		//Delete old from reverse
+		map.delete(old);
+		//Set new value in reverse
+		reverse[id] = element;
 		//Add to reverse map also
-		reverse.set(element,id);
+		map.set(element,id);
 	}
-	//Populate map with ids
+	//Populate reverse with ids
 	function populate(element){
-		//Add element to map
+		//Add element to reverse
 		add(maxId++,element);
 		//For each child node
 		for (var i=0;i<element.childNodes.length;++i)
 		{
-
 			if (element.childNodes[i].dataset) element.childNodes[i].dataset["swisId"] =maxId;
 
 			//Ignore doctype
@@ -3862,25 +3984,25 @@ Reflector.prototype.reflect = function(mirror)
 
 	function releaseElement(element) {
 		//Get id
-		var id = reverse.get(element);
-		//Add element to map
-		delete(map[id]);
+		var id = map.get(element);
+		//Add element to reverse
+		delete(reverse[id]);
 		//Delete from reverse map
-		reverse.delete(element);
+		map.delete(element);
 		//For each child node
 		for (var i=0;i<element.childNodes.length;++i)
 			//Get child
 			releaseElement(element.childNodes[i]);
 	}
 
-	//Release map with ids
+	//Release reverse with ids
 	function release(id){
 		//Get element
-		var element = map[id];
-		//Add element to map
-		delete(map[id]);
+		var element = reverse[id];
+		//Add element to reverse
+		delete(reverse[id]);
 		//Delete from reverse map
-		reverse.delete(element);
+		map.delete(element);
 		//For each child node
 		for (var i=0;i<element.childNodes.length;++i)
 			//Get child
@@ -3954,7 +4076,7 @@ Reflector.prototype.reflect = function(mirror)
 		mirror.open();
 		mirror.write(html);
 		mirror.close();
-
+		
 		//Pupulate ids
 		populate(mirror);
 
@@ -3969,6 +4091,23 @@ Reflector.prototype.reflect = function(mirror)
 				y: event.pageY
 			});
 		}),true);
+		//Listen selection evetns
+		mirror.addEventListener("selectionchange", (this.onselectionchange = function(e) {
+			//Get selection
+			var selection = mirror.getSelection();
+			//Get range
+			var range = selection.getRangeAt(0);
+			//Check if we have changed
+			queue(MessageType.SelectionChange,{
+				anchorNode: map.get(selection.anchorNode),
+				anchorOffset: selection.anchorOffset,
+				isCollapsed: selection.isCollapsed,
+				startContainer: map.get(range.startContainer),
+				startOffset: range.startOffset,
+				endContainer: map.get(range.endContainer),
+				endOffset: range.endOffset
+			});
+		}), true);
 		//Fire inited
 		self.emit("init",{href:href});
 	};
@@ -4003,18 +4142,18 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.ChildList:
 								//console.log("ChildList",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Get previous
-								var previous = map[message.previous];
+								var previous = reverse[message.previous];
 								//Get next
-								var next = map[message.next];
+								var next = reverse[message.next];
 								//Deleted elements
 								for (var i=0;i<message.deleted.length;i++)
 								{
 									//Add to the deleted ones
 									deleted[message.deleted[i]] = true;
 									//Remove node
-									map[message.deleted[i]].remove();
+									reverse[message.deleted[i]].remove();
 								}
 								//Added elements
 								for (var i=0;i<message.added.length;i++)
@@ -4032,21 +4171,21 @@ Reflector.prototype.reflect = function(mirror)
 										//Delete from deleted (jic)
 										delete(deleted[message.added[i]]);
 										//Add it
-										target.insertBefore(map[message.added[i]],next);
+										target.insertBefore(reverse[message.added[i]],next);
 									}
 								}
 								break;
 							case MessageType.Attributes:
 								//console.log("Atrribute",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Set data
 								target.setAttribute(message.key,message.value);
 								break;
 							case MessageType.CharacterData:
 								//console.log("CharData",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Set data
 								target.data = message.text;
 								break;
@@ -4054,7 +4193,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.MouseOver:
 								//console.log("Hover",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Hover target
 								hover(target);
 								break;	
@@ -4062,7 +4201,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.Focus:
 								//console.log("Focus",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Focus
 								target.focus();
 								break;	
@@ -4070,7 +4209,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.Blur:
 								//console.log("Blur",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Blur focus
 								target.blur();
 								break;
@@ -4078,7 +4217,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.Input:
 								//console.log("Input",message);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Set value
 								target.value = message.value;
 								break;
@@ -4086,7 +4225,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.CSS:
 								//console.log("External CSS content",message.target);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Create new style
 								var style = mirror.createElement("style");
 								//Set all attributes
@@ -4097,7 +4236,7 @@ Reflector.prototype.reflect = function(mirror)
 								style.innerHTML = resolveCSSURLs(message.css,message.href);
 								//Replace in parent node the target by element
 								target.parentNode.replaceChild(style,target);
-								//Set the  new element in map
+								//Set the  new element in reverse
 								replace(message.target,style);
 								//Process styles on next run
 								setTimeout(processStyles,0);
@@ -4107,7 +4246,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.Link:
 								//console.log("External CSS link",message.target);
 								//Get target
-								var target = map[message.target];
+								var target = reverse[message.target];
 								//Process styles on load
 								target.onload = processStyles;
 								//Set href
@@ -4150,10 +4289,27 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.MouseMove:
 								//console.log("Mouse cursor",message);
 								//Move cursor
-								self.emit("remotecursormove",{x: message.x,y: message.y});
+								self.emit("remotecursormove",{
+									x: message.x,
+									y: message.y
+								});
+								break;
+							//Selection change
+							case MessageType.SelectionChange:
+								//console.log("Selection change",message);
+								//Trigger selection change
+								self.emit("remoteselectionchange",{
+									anchorNode: reverse[message.anchorNode],
+									anchorOffset: message.anchorOffset,
+									isCollapsed: message.isCollapsed,
+									startContainer: reverse[message.startContainer],
+									startOffset: message.startOffset,
+									endContainer: reverse[message.endContainer],
+									endOffset: message.endOffset
+								});
 								break;
 							default:
-								//console.log("unknown mutation",message);
+								console.error("unknown message",message);
 						}
 					} catch (e) {
 						console.error(e);
@@ -4172,13 +4328,15 @@ Reflector.prototype.reflect = function(mirror)
 
 Reflector.prototype.stop = function()
 {
-	//Clean maps
-	this.map = {};
-	this.reverse = new WeakMap();
+	//Clean reverses
+	this.reverse = {};
+	this.map = new WeakMap();
 	//Media rules
 	this.mediarules = {};
 	//Remove listener
-	this.mirror.removeEventListener(this.onmousemove);
+	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
+	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);
+	
 };
 
 module.exports = Reflector;

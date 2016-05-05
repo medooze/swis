@@ -96,6 +96,15 @@
 		</div>
 		<textarea></textarea>
 		<select ><option>a <option>b</select>
+		<div>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent a sagittis risus, quis blandit augue. Proin id ullamcorper magna. Pellentesque dignissim sem ut ipsum egestas, et tempus eros tempus. Nullam eu maximus purus. Proin scelerisque sit amet sapien vel viverra. Cras bibendum non sapien ut rhoncus. Quisque viverra justo in augue pulvinar vestibulum. Proin dignissim ultrices orci, finibus faucibus tellus ullamcorper id. Ut lacinia mi odio, sed luctus dolor posuere eget.</div>
+
+		<div>Morbi faucibus rhoncus leo in fringilla. Maecenas eu metus libero. Pellentesque nec elit ipsum. Nam ac leo odio. Sed sit amet faucibus mauris, dignissim posuere turpis. Donec cursus feugiat erat, sed maximus metus mattis sed. Aenean ut mauris nec urna blandit venenatis. Duis pulvinar eros vel enim rhoncus elementum. Suspendisse faucibus sem vel facilisis hendrerit. Nam fringilla ac est vel mollis. Quisque volutpat finibus elit quis molestie. Aliquam erat volutpat. Mauris ornare ex orci, vel sagittis ipsum pellentesque a.</div>
+
+		<div>Sed in ornare nunc, quis feugiat nisl. Aliquam erat volutpat. Phasellus rhoncus augue a mauris porta bibendum. Integer nec mauris id urna sodales bibendum vitae ut felis. Nunc auctor, leo quis gravida blandit, magna quam maximus ligula, vulputate semper ex lacus vitae neque. Donec ut iaculis diam. Duis consequat eleifend velit. Nunc id odio fringilla, porttitor leo non, blandit justo. Nullam finibus erat ligula, et faucibus risus ornare eget.</div>
+
+		<div>In id elit metus. Aliquam cursus lacus ipsum, quis pellentesque quam viverra nec. Nulla facilisi. Donec vitae massa consequat quam gravida pellentesque vitae maximus est. Donec mollis egestas velit, quis ultrices augue semper et. Suspendisse potenti. Sed sit amet iaculis justo. Nulla consectetur id ante sed suscipit.</div>
+
+		<div>Etiam placerat suscipit venenatis. Cras nibh felis, ornare vel erat non, sagittis egestas erat. Pellentesque ante mauris, ultricies id augue quis, eleifend consectetur neque. Sed non odio odio. Nullam scelerisque cursus nisi non auctor. Aenean et ultricies purus. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Nulla ut lectus sapien.</div>
 </body>
 </html>
 
@@ -148,7 +157,7 @@
 			remoteCursor.style["color"] = "white";
 			remoteCursor.style["margin"] = "0px";
 			remoteCursor.style["padding"] = "0px";
-			remoteCursor.style["z-index"] = "99999999999999999999999999";
+			remoteCursor.style["z-index"] = "2147483647";
 			//Set text
 			remoteCursor.innerHTML = "^Remote Cursor";
 			//Insert into
@@ -158,6 +167,89 @@
 		remoteCursor.style["left"] = data.x + "px";
 		remoteCursor.style["top"] =  data.y + "px";
 	});
+	
+	var highlights = [];
+	observer.on("remoteselectionchange",function(selection){
+		console.log(selection);
+		//Create new range
+		var range = document.createRange();
+		//Set start and end
+		range.setStart(selection.startContainer, selection.startOffset);
+		range.setEnd(selection.endContainer, selection.endOffset);
+		
+		//Clean highligts first
+		for (var i=0;i<highlights.length;i++)
+			//REmove nodes
+			highlights[i].remove();
+		//Clean array
+		highlights = [];
+		
+		//Create new bounding rects of the text fields
+		var rects = [];
+		var started = false;
+		
+		
+		function walk(node) {
+			//If we are not started and it is the start node
+			if (!started && node===selection.startContainer) 
+				//We have found it!
+				started = true;
+			//If it is a text node
+			if (started && node.nodeType===3) 
+			{
+				var range = document.createRange();
+				//Set start and end
+				range.setStart(node, node === selection.startContainer ?  selection.startOffset : 0);
+				range.setEnd(node, node === selection.endContainer ? selection.endOffset : node.wholeText.length);
+				//Get bounding rects
+				Array.prototype.push.apply(rects,range.getClientRects());
+			}
+			//If we are now started and it is the end node
+			if (started && node===selection.endContainer) 
+				//Stop
+				return false;
+			//Check each children
+			for (var i=0;i<node.childNodes.length;++i)
+				//Process it
+				if (!walk(node.childNodes[i]))
+					//Ended
+					return false;
+			//Continue processing
+			return true;
+		}
+		
+		//Traverse nodes inside it
+		walk(range.commonAncestorContainer);
+		
+		console.log(rects);
+		//Create a highlight for each rect
+		for (var i=0;i<rects.length;i++)
+		{
+			//Create new element
+			var high = document.createElement("div");
+			//Set class
+			high.className = "cursor";
+			//Set absolute positioning
+			high.style["pointer-events"] = "none";
+			high.style["position"] = "absolute";
+			high.style["top"] = rects[i].top+"px";
+			high.style["left"] = rects[i].left+"px";
+			high.style["width"] = rects[i].width+"px";
+			high.style["height"] = rects[i].height+"px";
+			high.style["border"] = "1px black solid";
+			high.style["background-color"] = "yellow";
+			high.style["margin"] = "0px";
+			high.style["padding"] = "0px";
+			high.style["opacity"] = "0.4";
+			high.style["z-index"] = "2147483646";
+			//Insert into
+			document.documentElement.appendChild(high);
+			//Push to highlights array
+			highlights.push(high);
+		}
+	});
+	
+	
 
 	
 </script>

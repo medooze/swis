@@ -66,6 +66,9 @@
 		.then(function(parser){
 			while(parser.hasNext())
 				console.log(parser.next());
+		})
+		.catch(function(e){
+			console.error(e);
 		});
 
 </script>
