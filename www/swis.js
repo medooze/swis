@@ -308,9 +308,133 @@ module.exports = {
 	MessageType: require("./lib/message/type.js"),
 	MessageFactory: require("./lib/message/factory.js"),
 	MessageParser: require("./lib/message/parser.js"),
-	Utils: require("./lib/utils.js")
+	Utils: require("./lib/utils.js"),
+	Canvas: require("./lib/canvas.js")
 };
-},{"./lib/message/factory.js":4,"./lib/message/parser.js":5,"./lib/message/type.js":6,"./lib/observer.js":8,"./lib/reflector.js":9,"./lib/utils.js":10}],3:[function(require,module,exports){
+},{"./lib/canvas.js":3,"./lib/message/factory.js":5,"./lib/message/parser.js":6,"./lib/message/type.js":7,"./lib/observer.js":9,"./lib/reflector.js":10,"./lib/utils.js":11}],3:[function(require,module,exports){
+
+function Path(canvas,color)
+{
+	this.canvas = canvas;
+	this.color = color;
+	this.points = [];
+}
+
+Path.prototype.add = function(x,y)
+{
+	//Push it to the points line
+	this.points.push({
+		x: x,
+		y: y
+	});
+	//If it is the canvas current one
+	if (this.canvas.current === this)
+	{
+		//paint it directly so we don't have to redraw the whole canvas
+		this.canvas.context.lineTo(x, y);
+		this.canvas.context.stroke();
+	}
+};
+
+function Canvas(document)
+{
+	//List of paths
+	this.paths = [];
+	//Store document
+	this.document = document;
+	// Create a blank div where we are going to put the canvas into.
+	this.canvas = document.createElement('canvas');
+	this.canvas.className = "cursor";
+	this.canvas.style["pointer-events"] = "none";
+	this.canvas.style.position="absolute";
+	this.canvas.style.overflow = 'visible';
+	this.canvas.style.left="0px";
+	this.canvas.style.top="0px";
+	this.canvas.style.zIndex="2147483646";
+	//Resize
+	this.resize();
+	// Add int into the container
+	document.body.appendChild(this.canvas);
+	//Get context
+	this.context = this.canvas.getContext("2d");
+}
+
+
+Canvas.prototype.createPath = function(color)
+{
+	//Create new path
+	var path = new Path(this,color);
+	//Push it into paths
+	this.paths.push(path);
+	//Set current path
+	this.current = path;
+	//Start painting
+	this.context.beginPath();
+	this.context.strokeStyle = this.current.color;     // a green line
+	this.context.lineWidth = 4;			   // 4 pixels thickness
+	//return it
+	return path;
+};
+
+Canvas.prototype.resize = function()
+{
+	// Lookup the size the browser is displaying the canvas.
+	var displayWidth  = this.document.documentElement.clientWidth;
+	var displayHeight = this.document.documentElement.clientHeight;
+
+	// Check if the this.canvas is not the same size.
+	if (this.canvas.width!==displayWidth || this.canvas.height!==displayHeight) 
+	{
+		// Make the this.canvas the same size
+		this.canvas.width  = displayWidth;
+		this.canvas.height = displayHeight;
+		this.canvas.style.width = displayWidth+"px";
+		this.canvas.style.height = displayHeight+"px";
+	}
+	//Redraw
+	this.redraw();
+};
+
+Canvas.prototype.redraw = function()
+{
+	//This should go into a request animation frame
+	for (var i=0;i<this.paths.length;++i)
+	{
+		//Get current path
+		this.current = this.paths[i];
+		//Start painting
+		this.context.beginPath();
+		this.context.strokeStyle = this.current.color;     // a green line
+		this.context.lineWidth = 4;			   // 4 pixels thickness
+		//For each point
+		for (var j=0;j<this.current.points.length;++j)
+			//Draw next path
+			this.context.lineTo(this.current.points[j].x, this.current.points[j].y);
+		this.context.stroke();
+	}
+};
+
+Canvas.prototype.clear = function()
+{
+	//Empty paths
+	this.paths = [];
+	//Empty current
+	this.current = null;
+	//Redraw
+	this.redraw();
+};
+
+Canvas.prototype.stop = function() {
+	//Empty paths
+	this.paths = [];
+	//Empty current
+	this.current = null;
+	//Remove canvas
+	this.canvas.remove();
+};
+
+module.exports = Canvas;
+},{}],4:[function(require,module,exports){
 "use strict";
 
     /**
@@ -2756,7 +2880,7 @@ module.exports = {
     };
 
 module.exports = ByteBuffer;
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 var MessageType = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -2790,6 +2914,11 @@ function MessageFactory()
 	this.parts = [];
 	this.size = 0;
 }
+
+MessageFactory.prototype.isEmpty = function() 
+{
+	return !this.size;
+};
 
 MessageFactory.prototype.appendMessage = function(type,message) 
 {
@@ -2948,6 +3077,10 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			bytebuffer.writeVarint32(message.endContainer || 0);
 			bytebuffer.writeVarint32(message.endOffset);
 			break;
+		case MessageType.Paint:
+			// flag: on/offt
+			bytebuffer.writeByte(message.flag ? 1:0);
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -2994,7 +3127,7 @@ MessageFactory.prototype.flush = function(useBlob)
 
 module.exports =  MessageFactory;
 
-},{"./bytebuffer.js":3,"./type.js":6,"pako":12}],5:[function(require,module,exports){
+},{"./bytebuffer.js":4,"./type.js":7,"pako":13}],6:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3162,6 +3295,10 @@ MessageParser.prototype.next = function()
 			message.endContainer = bytebuffer.readVarint32();
 			message.endOffset = bytebuffer.readVarint32();
 			break;
+		case MessageType.Paint:
+			// flag: on/offt
+			message.flag = bytebuffer.readByte();
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3202,7 +3339,7 @@ MessageParser.Parse = function(data)
 };
 
 module.exports = MessageParser;
-},{"./bytebuffer.js":3,"./type.js":6,"pako":12}],6:[function(require,module,exports){
+},{"./bytebuffer.js":4,"./type.js":7,"pako":13}],7:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -3213,7 +3350,7 @@ for (var i = 0; i<Types.length; ++i)
 	Type[Types[i]] = i;
 
 module.exports = Type;
-},{"./types.js":7}],7:[function(require,module,exports){
+},{"./types.js":8}],8:[function(require,module,exports){
 // Observer -> Reflector messages
 module.exports = [
 	"HTML",
@@ -3231,9 +3368,10 @@ module.exports = [
 	"Link",
 	"MediaQueryRequest",
 	"MediaQueryMatches",
-	"SelectionChange"
+	"SelectionChange",
+	"Paint"
 ];
-},{}],8:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
@@ -3274,14 +3412,18 @@ Observer.prototype.observe = function(exclude)
 	var timer;
 	
 	function flush() {
-		//Send messages
-		transport.send(factory.flush(self.options.blob));
-		//clean queue
-		factory = new MessageFactory();
 		//Clear timer (jic)
 		clearTimeout (timer);
 		//Dismiss
 		timer = null;
+		//Ensure we have something to send
+		if (!factory.isEmpty())
+		{
+			//Send messages
+			transport.send(factory.flush(self.options.blob));
+			//clean queue
+			factory = new MessageFactory();
+		}
 	}
 	
 	function queue(type,message) {
@@ -3541,6 +3683,8 @@ Observer.prototype.observe = function(exclude)
 			map.delete(deleted[id]);
 			delete(reverse[id]);
 		}
+		//Send changed event
+		self.emit("change");
 	});
 
 	// pass in the target node, as well as the observer options
@@ -3730,6 +3874,14 @@ Observer.prototype.observe = function(exclude)
 								endOffset: message.endOffset
 							});
 							break;
+						//Paint request
+						case MessageType.Paint:
+							//console.log("Paint",message);
+							//Trigger selection change
+							self.emit("remotepaint",{
+								drawing: message.flag
+							});
+							break;
 						default:
 							console.error("unknown message",message);
 					}	
@@ -3767,10 +3919,11 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./message/factory.js":4,"./message/parser.js":5,"./message/type.js":6,"./utils.js":10,"events":1,"inherits":11}],9:[function(require,module,exports){
+},{"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"./utils.js":11,"events":1,"inherits":12}],10:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
+var Canvas = require("./canvas.js");
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
@@ -4095,6 +4248,10 @@ Reflector.prototype.reflect = function(mirror)
 				x: event.pageX,
 				y: event.pageY
 			});
+			//If we are painting
+			if (self.path)
+				//Add point
+				self.path.add(event.pageX,event.pageY);
 		}),true);
 		//Listen selection evetns
 		mirror.addEventListener("selectionchange", (this.onselectionchange = function(e) {
@@ -4112,6 +4269,13 @@ Reflector.prototype.reflect = function(mirror)
 				endContainer: range ? map.get(range.endContainer): 0,
 				endOffset: range ? range.endOffset : 0
 			});
+		}), true);
+		//Create painting canvas
+		self.canvas = new Canvas(mirror);
+		//Prepare for resize
+		mirror.defaultView.addEventListener("resize", (this.onresize = function(e) {
+			//resize canvas
+			self.canvas.resize();
 		}), true);
 		//Fire inited
 		self.emit("init",{href:href});
@@ -4327,11 +4491,87 @@ Reflector.prototype.reflect = function(mirror)
 				for (var id in deleted)
 					//Release delete node refs
 					release(id);
-
+				//Send changed event
+				self.emit("change");
 			}).catch(function(error){
 				console.error(error);
 			});
 	};
+	
+	//Create listener for mousedown/up for future use
+	this.onmousedown = function (event) {
+		//If we are painting
+		if (self.painting)
+			//Send message back
+			queue(MessageType.Paint, {
+				flag: true
+			});
+		//Store state
+		self.path = self.canvas.createPath('green');
+		//Set style of cursor
+		self.overlay.style["cursor"] = "pointer";
+		//Disable texg selection and oder interactions
+		event.stopPropagation();
+		event.preventDefault();
+	};
+	this.onmouseup = function (event) {
+		//If we are painting and not gone out of document
+		if (self.painting && self.path)
+			//Send message back
+			queue(MessageType.Paint, {
+				flag: false
+			});
+		//Set style of cursor
+		self.overlay.style["cursor"] = "";
+		//Store state
+		self.path = false;
+	};
+};
+
+Reflector.prototype.paint = function(flag)
+{
+	//Ensure we are in different state
+	if (this.painting===flag)
+		//Nothing
+		return;
+	
+	//Check if we were not painting 
+	if (!this.painting)
+	{
+		//Listen mouse down events
+		this.mirror.addEventListener("mousedown",this.onmousedown,true);
+		this.mirror.addEventListener("mouseleave",this.onmouseup,true);
+		this.mirror.addEventListener("mouseup",this.onmouseup,true);
+		//Add a div overlay
+		this.overlay = this.mirror.createElement("div");
+		//Set properties
+		this.overlay.style["position"]	 = "absolute";
+		this.overlay.style["top"]	 = "0px";
+		this.overlay.style["left"]	 = "0px";
+		this.overlay.style["width"]	 = "100%";
+		this.overlay.style["height"]	 = "100%";
+		this.overlay.style["margin"]	 = "0px";
+		this.overlay.style["padding"]	 = "0px";
+		this.overlay.style["z-index"]	 = "2147483646";
+		//Append to body
+		this.mirror.body.appendChild(this.overlay);
+		
+	}  else {
+		//Stop listening events
+		this.mirror.removeEventListener("mousedown",this.onmousedown,true);
+		this.mirror.removeEventListener("mouseleave",this.onmouseup,true);
+		this.mirror.removeEventListener("mouseup",this.onmouseup,true);
+		//If we were down
+		if (this.mousedown)
+			//Emulate it
+			this.onmouseup();
+		//Remove overlay
+		this.overlay.remove();
+	}
+	
+	//Store
+	this.painting = flag;
+	
 };
 
 Reflector.prototype.stop = function()
@@ -4344,13 +4584,18 @@ Reflector.prototype.stop = function()
 	//Remove listener
 	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
 	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);
+	this.mirror.defaultView.removeEventListener("rsize",this.onresize,true);
 	
 };
 
 module.exports = Reflector;
-},{"./message/factory.js":4,"./message/parser.js":5,"./message/type.js":6,"events":1,"inherits":11}],10:[function(require,module,exports){
-var getSelectionClientRects = function(document,selection)
+},{"./canvas.js":3,"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"events":1,"inherits":12}],11:[function(require,module,exports){
+function getSelectionClientRects(document,selection)
 {
+	//Check
+	if (!selection || !selection.startContainer)
+		//Empty
+		return [];
 	//Create new range
 	var range = document.createRange();
 	//Set start and end
@@ -4369,12 +4614,16 @@ var getSelectionClientRects = function(document,selection)
 		//If it is a text node
 		if (started && node.nodeType===3) 
 		{
+			try {
 			var range = document.createRange();
 			//Set start and end
 			range.setStart(node, node === selection.startContainer ?  selection.startOffset : 0);
-			range.setEnd(node, node === selection.endContainer ? selection.endOffset : node.wholeText.length);
+			range.setEnd(node, node === selection.endContainer ? selection.endOffset : node.textContent.length);
 			//Get bounding rects
 			Array.prototype.push.apply(rects,range.getClientRects());
+			} catch(e) {
+				debugger;
+			}
 		}
 		//If we are now started and it is the end node
 		if (started && node===selection.endContainer) 
@@ -4400,7 +4649,7 @@ var getSelectionClientRects = function(document,selection)
 module.exports = {
 	getSelectionClientRects: getSelectionClientRects
 }
-},{}],11:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -4425,7 +4674,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -4441,7 +4690,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":13,"./lib/inflate":14,"./lib/utils/common":15,"./lib/zlib/constants":18}],13:[function(require,module,exports){
+},{"./lib/deflate":14,"./lib/inflate":15,"./lib/utils/common":16,"./lib/zlib/constants":19}],14:[function(require,module,exports){
 'use strict';
 
 
@@ -4843,7 +5092,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":15,"./utils/strings":16,"./zlib/deflate":20,"./zlib/messages":25,"./zlib/zstream":27}],14:[function(require,module,exports){
+},{"./utils/common":16,"./utils/strings":17,"./zlib/deflate":21,"./zlib/messages":26,"./zlib/zstream":28}],15:[function(require,module,exports){
 'use strict';
 
 
@@ -5263,7 +5512,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":15,"./utils/strings":16,"./zlib/constants":18,"./zlib/gzheader":21,"./zlib/inflate":23,"./zlib/messages":25,"./zlib/zstream":27}],15:[function(require,module,exports){
+},{"./utils/common":16,"./utils/strings":17,"./zlib/constants":19,"./zlib/gzheader":22,"./zlib/inflate":24,"./zlib/messages":26,"./zlib/zstream":28}],16:[function(require,module,exports){
 'use strict';
 
 
@@ -5367,7 +5616,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -5554,7 +5803,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":15}],17:[function(require,module,exports){
+},{"./common":16}],18:[function(require,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -5588,7 +5837,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 'use strict';
 
 
@@ -5640,7 +5889,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -5683,7 +5932,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 var utils   = require('../utils/common');
@@ -7533,7 +7782,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":15,"./adler32":17,"./crc32":19,"./messages":25,"./trees":26}],21:[function(require,module,exports){
+},{"../utils/common":16,"./adler32":18,"./crc32":20,"./messages":26,"./trees":27}],22:[function(require,module,exports){
 'use strict';
 
 
@@ -7575,7 +7824,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -7903,7 +8152,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],23:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 
 
@@ -9443,7 +9692,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":15,"./adler32":17,"./crc32":19,"./inffast":22,"./inftrees":24}],24:[function(require,module,exports){
+},{"../utils/common":16,"./adler32":18,"./crc32":20,"./inffast":23,"./inftrees":25}],25:[function(require,module,exports){
 'use strict';
 
 
@@ -9772,7 +10021,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":15}],25:[function(require,module,exports){
+},{"../utils/common":16}],26:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -9787,7 +10036,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],26:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 'use strict';
 
 
@@ -10991,7 +11240,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":15}],27:[function(require,module,exports){
+},{"../utils/common":16}],28:[function(require,module,exports){
 'use strict';
 
 

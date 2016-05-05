@@ -4,5 +4,6 @@ module.exports = {
 	MessageType: require("./lib/message/type.js"),
 	MessageFactory: require("./lib/message/factory.js"),
 	MessageParser: require("./lib/message/parser.js"),
-	Utils: require("./lib/utils.js")
+	Utils: require("./lib/utils.js"),
+	Canvas: require("./lib/canvas.js")
 };

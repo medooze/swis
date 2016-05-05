@@ -137,6 +137,10 @@
 		transport.onmessage(message.data);
 	});	
 
+	
+	//Create remote drawing canvas
+	var drawing = false;
+	var canvas = new swis.Canvas(document);
 	var remoteCursor;
 	observer.on("remotecursormove",function(data){
 		//Check if first cursor
@@ -165,6 +169,9 @@
 		//Set new position
 		remoteCursor.style["left"] = data.x + "px";
 		remoteCursor.style["top"] =  data.y + "px";
+		
+		if (drawing)
+			drawing.add(data.x,data.y);
 	});
 	
 	var selection = null;
@@ -206,21 +213,38 @@
 			//Push to highlights array
 			highlights.push(high);
 		}
+		
+		
 	}
 	
 	observer.on("remoteselectionchange",function(sel){
-		console.log(selection);
 		//Store new selection
 		selection = sel;
 		//Update
 		highlightSelection();
 	});
 	
-	window.addEventListener("resize",function(message){
-		highlightSelection();
+	observer.on("change",function(){
+		//Update
+		//highlightSelection();
 	});
 	
 	
-
+	observer.on("remotepaint",function(event){
+		// reset the path when starting over
+		if (event.drawing)
+			//Create new path
+			drawing = canvas.createPath('green');
+		else
+			//Stop old one
+			drawing = null;
+		
+	});
+	
+	window.addEventListener("resize",function(message){
+		highlightSelection();
+		canvas.resize();
+	});
+	
 	
 </script>
