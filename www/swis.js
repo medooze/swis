@@ -307,9 +307,10 @@ module.exports = {
 	Reflector: require("./lib/reflector.js"),
 	MessageType: require("./lib/message/type.js"),
 	MessageFactory: require("./lib/message/factory.js"),
-	MessageParser: require("./lib/message/parser.js")
+	MessageParser: require("./lib/message/parser.js"),
+	Utils: require("./lib/utils.js")
 };
-},{"./lib/message/factory.js":4,"./lib/message/parser.js":5,"./lib/message/type.js":6,"./lib/observer.js":8,"./lib/reflector.js":9}],3:[function(require,module,exports){
+},{"./lib/message/factory.js":4,"./lib/message/parser.js":5,"./lib/message/type.js":6,"./lib/observer.js":8,"./lib/reflector.js":9,"./lib/utils.js":10}],3:[function(require,module,exports){
 "use strict";
 
     /**
@@ -2993,7 +2994,7 @@ MessageFactory.prototype.flush = function(useBlob)
 
 module.exports =  MessageFactory;
 
-},{"./bytebuffer.js":3,"./type.js":6,"pako":11}],5:[function(require,module,exports){
+},{"./bytebuffer.js":3,"./type.js":6,"pako":12}],5:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3201,7 +3202,7 @@ MessageParser.Parse = function(data)
 };
 
 module.exports = MessageParser;
-},{"./bytebuffer.js":3,"./type.js":6,"pako":11}],6:[function(require,module,exports){
+},{"./bytebuffer.js":3,"./type.js":6,"pako":12}],6:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -3239,6 +3240,7 @@ var MessageParser = require("./message/parser.js");
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
+var Utils = require('./utils.js');
 
 function Observer(transport,options)
 {
@@ -3603,16 +3605,16 @@ Observer.prototype.observe = function(exclude)
 		//Get selection
 		var selection = document.getSelection();
 		//Get range
-		var range = selection.getRangeAt(0);
+		var range = selection.rangeCount===1 ? selection.getRangeAt(0) : null;
 		//Check if we have changed
 		queue(MessageType.SelectionChange,{
 			anchorNode: map.get(selection.anchorNode),
 			anchorOffset: selection.anchorOffset,
 			isCollapsed: selection.isCollapsed,
-			startContainer: map.get(range.startContainer),
-			startOffset: range.startOffset,
-			endContainer: map.get(range.endContainer),
-			endOffset: range.endOffset
+			startContainer: range ? map.get(range.startContainer) : 0,
+			startOffset: range ? range.startOffset : 0,
+			endContainer: range ? map.get(range.endContainer): 0,
+			endOffset: range ? range.endOffset : 0
 		});
 	}), true);
 
@@ -3653,8 +3655,11 @@ Observer.prototype.observe = function(exclude)
 	};
 	
 	//Listen for message changes again, as listener has been desroyed 
-	transport.onmessage = function(blob)
+	transport.onmessage  = function(message)
 	{	
+		//Get blob
+		var blob = message.data || message;
+		
 		//Create parser
 		MessageParser.Parse(blob)
 			.then(function(parser)
@@ -3762,7 +3767,7 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./message/factory.js":4,"./message/parser.js":5,"./message/type.js":6,"events":1,"inherits":10}],9:[function(require,module,exports){
+},{"./message/factory.js":4,"./message/parser.js":5,"./message/type.js":6,"./utils.js":10,"events":1,"inherits":11}],9:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
@@ -4079,7 +4084,7 @@ Reflector.prototype.reflect = function(mirror)
 		
 		//Pupulate ids
 		populate(mirror);
-
+		
 		//Process styles
 		processStyles();
 		
@@ -4096,24 +4101,27 @@ Reflector.prototype.reflect = function(mirror)
 			//Get selection
 			var selection = mirror.getSelection();
 			//Get range
-			var range = selection.getRangeAt(0);
+			var range = selection.rangeCount===1 ? selection.getRangeAt(0) : null;
 			//Check if we have changed
 			queue(MessageType.SelectionChange,{
 				anchorNode: map.get(selection.anchorNode),
 				anchorOffset: selection.anchorOffset,
 				isCollapsed: selection.isCollapsed,
-				startContainer: map.get(range.startContainer),
-				startOffset: range.startOffset,
-				endContainer: map.get(range.endContainer),
-				endOffset: range.endOffset
+				startContainer: range ? map.get(range.startContainer) : 0,
+				startOffset: range ? range.startOffset : 0,
+				endContainer: range ? map.get(range.endContainer): 0,
+				endOffset: range ? range.endOffset : 0
 			});
 		}), true);
 		//Fire inited
 		self.emit("init",{href:href});
 	};
 
-	transport.onmessage = function(blob)
+	transport.onmessage = function(message)
 	{	
+		//Get blob
+		var blob = message.data || message;
+		
 		//Create parser
 		MessageParser.Parse(blob)
 			.then(function(parser)
@@ -4340,7 +4348,59 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./message/factory.js":4,"./message/parser.js":5,"./message/type.js":6,"events":1,"inherits":10}],10:[function(require,module,exports){
+},{"./message/factory.js":4,"./message/parser.js":5,"./message/type.js":6,"events":1,"inherits":11}],10:[function(require,module,exports){
+var getSelectionClientRects = function(document,selection)
+{
+	//Create new range
+	var range = document.createRange();
+	//Set start and end
+	range.setStart(selection.startContainer, selection.startOffset);
+	range.setEnd(selection.endContainer, selection.endOffset);
+
+	//Create new bounding rects of the text fields
+	var rects = [];
+	var started = false;
+
+	function walk(node) {
+		//If we are not started and it is the start node
+		if (!started && node===selection.startContainer) 
+			//We have found it!
+			started = true;
+		//If it is a text node
+		if (started && node.nodeType===3) 
+		{
+			var range = document.createRange();
+			//Set start and end
+			range.setStart(node, node === selection.startContainer ?  selection.startOffset : 0);
+			range.setEnd(node, node === selection.endContainer ? selection.endOffset : node.wholeText.length);
+			//Get bounding rects
+			Array.prototype.push.apply(rects,range.getClientRects());
+		}
+		//If we are now started and it is the end node
+		if (started && node===selection.endContainer) 
+			//Stop
+			return false;
+		//Check each children
+		for (var i=0;i<node.childNodes.length;++i)
+			//Process it
+			if (!walk(node.childNodes[i]))
+				//Ended
+				return false;
+		//Continue processing
+		return true;
+	}
+
+	//Traverse nodes inside it
+	walk(range.commonAncestorContainer);
+	
+	//return the client rectangles
+	return rects;
+};
+
+module.exports = {
+	getSelectionClientRects: getSelectionClientRects
+}
+},{}],11:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -4365,7 +4425,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],11:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -4381,7 +4441,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":12,"./lib/inflate":13,"./lib/utils/common":14,"./lib/zlib/constants":17}],12:[function(require,module,exports){
+},{"./lib/deflate":13,"./lib/inflate":14,"./lib/utils/common":15,"./lib/zlib/constants":18}],13:[function(require,module,exports){
 'use strict';
 
 
@@ -4783,7 +4843,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":14,"./utils/strings":15,"./zlib/deflate":19,"./zlib/messages":24,"./zlib/zstream":26}],13:[function(require,module,exports){
+},{"./utils/common":15,"./utils/strings":16,"./zlib/deflate":20,"./zlib/messages":25,"./zlib/zstream":27}],14:[function(require,module,exports){
 'use strict';
 
 
@@ -5203,7 +5263,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":14,"./utils/strings":15,"./zlib/constants":17,"./zlib/gzheader":20,"./zlib/inflate":22,"./zlib/messages":24,"./zlib/zstream":26}],14:[function(require,module,exports){
+},{"./utils/common":15,"./utils/strings":16,"./zlib/constants":18,"./zlib/gzheader":21,"./zlib/inflate":23,"./zlib/messages":25,"./zlib/zstream":27}],15:[function(require,module,exports){
 'use strict';
 
 
@@ -5307,7 +5367,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],15:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -5494,7 +5554,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":14}],16:[function(require,module,exports){
+},{"./common":15}],17:[function(require,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -5528,7 +5588,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 'use strict';
 
 
@@ -5580,7 +5640,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -5623,7 +5683,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 'use strict';
 
 var utils   = require('../utils/common');
@@ -7473,7 +7533,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":14,"./adler32":16,"./crc32":18,"./messages":24,"./trees":25}],20:[function(require,module,exports){
+},{"../utils/common":15,"./adler32":17,"./crc32":19,"./messages":25,"./trees":26}],21:[function(require,module,exports){
 'use strict';
 
 
@@ -7515,7 +7575,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],21:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -7843,7 +7903,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 'use strict';
 
 
@@ -9383,7 +9443,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":14,"./adler32":16,"./crc32":18,"./inffast":21,"./inftrees":23}],23:[function(require,module,exports){
+},{"../utils/common":15,"./adler32":17,"./crc32":19,"./inffast":22,"./inftrees":24}],24:[function(require,module,exports){
 'use strict';
 
 
@@ -9712,7 +9772,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":14}],24:[function(require,module,exports){
+},{"../utils/common":15}],25:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -9727,7 +9787,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],25:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 
 
@@ -10931,7 +10991,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":14}],26:[function(require,module,exports){
+},{"../utils/common":15}],27:[function(require,module,exports){
 'use strict';
 
 
