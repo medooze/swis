@@ -11,6 +11,8 @@
 	};
 	//Create iframe	
 	var iframe = document.createElement("iframe");
+	//Set sandbox, it disables scripts and forms, but still allow same domain to get access to contents
+	iframe.sandbox = ["allow-same-origin"];
 	//Append it 
 	document.documentElement.appendChild(iframe);
 	//Get mirror
