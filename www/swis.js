@@ -3584,6 +3584,19 @@ Observer.prototype.observe = function(exclude)
 	//Clone DOM
 	var cloned = clone(document,document.cloneNode(0),exclude);
 	
+	//Check if there is a BASE element in the document
+	if (!cloned.querySelector("base"))
+	{
+		//Craete base element
+		var base = cloned.createElement("base");
+		//Set href to documenbt location
+		base.setAttribute("href",document.location.href);
+		//Set href to documenbt location
+		base.setAttribute("swis", true);
+		//Append to head in the cloned doc
+		cloned.querySelector("head").appendChild(base);
+	}
+	
 	//Start with the doctype
 	var html = doctype;
 	//For each node of the document
@@ -3816,13 +3829,6 @@ Observer.prototype.observe = function(exclude)
 		height: window.innerHeight
 	});
 	
-	//Check if there is a BASE element in the document
-	if (!document.querySelector ("base"))
-		//Rebase
-		queue(MessageType.Base,{
-			href: document.location.href
-		});
-
 	//Listener for media query changes
 	this.mediaQueryListener = function(event) {
 		//Get mql
@@ -4191,6 +4197,10 @@ Reflector.prototype.reflect = function(mirror)
 	}
 	//Populate reverse with ids
 	function populate(element){
+		//If it is the base and we have to ignore it
+		if (element.nodeName==="BASE" && element.hasAttribute("swis"))
+			//Ignore
+			return;
 		//Add element to reverse
 		add(maxId++,element);
 		//For each child node
@@ -4276,7 +4286,7 @@ Reflector.prototype.reflect = function(mirror)
 					//request update
 					queries[id] = rules[i].media.mediaText;
 					//Remove the media rules
-					rules.removeRule(i);
+					stylesheet.removeRule(i);
 				} else if (rules[i].type===1) {
 					//Replace pseudo classes
 					rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
