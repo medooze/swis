@@ -181,7 +181,17 @@
 		remoteCursor.style["top"] =  data.y + "px";
 	});
 	
+	var first = true;
 	reflector.on("resize",function(data){
+		//If it is first time
+		if (first)
+		{
+			//Set it once first
+			iframe.width = data.width;
+			iframe.height = data.height;
+			first = false;
+		} 
+			
 		iframe.width = data.width + (iframe.width -iframe.contentWindow.document.documentElement.clientWidth);
 		iframe.height = data.height; + (iframe.height -iframe.contentWindow.document.documentElement.clientheight);
 	});
