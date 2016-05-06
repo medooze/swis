@@ -27,7 +27,7 @@ Stop observing DOM changes
 ##Reflector
 Display a DOM mirror
 
-###[constructor] Reflector(transport)
+###[constructor] Reflector(transport,options)
 Create a new DOM reflector
  * `transport` Object that allows sending and receiving DOM updates, must implement the following interface
     - `send(data)`
