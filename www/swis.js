@@ -350,12 +350,12 @@ function Canvas(document)
 	this.canvas.style.left="0px";
 	this.canvas.style.top="0px";
 	this.canvas.style.zIndex="2147483646";
+	//Get context
+	this.context = this.canvas.getContext("2d");
 	//Resize
 	this.resize();
 	// Add int into the container
 	document.body.appendChild(this.canvas);
-	//Get context
-	this.context = this.canvas.getContext("2d");
 }
 
 Canvas.prototype.contains = function(el)
@@ -413,6 +413,8 @@ Canvas.prototype.resize = function()
 
 Canvas.prototype.redraw = function()
 {
+	//Empty canvas
+	this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
 	//This should go into a request animation frame
 	for (var i=0;i<this.paths.length;++i)
 	{
@@ -3097,6 +3099,9 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// flag: on/offt
 			bytebuffer.writeByte(message.flag ? 1:0);
 			break;
+		case MessageType.Clear:
+			//Empty
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3314,6 +3319,9 @@ MessageParser.prototype.next = function()
 		case MessageType.Paint:
 			// flag: on/offt
 			message.flag = bytebuffer.readByte();
+			break
+		case MessageType.Clear:
+			//Empty
 			break;
 		default:
 			//Error
@@ -3385,7 +3393,8 @@ module.exports = [
 	"MediaQueryRequest",
 	"MediaQueryMatches",
 	"SelectionChange",
-	"Paint"
+	"Paint",
+	"Clear"
 ];
 },{}],9:[function(require,module,exports){
 var MessageType = require("./message/type.js");
@@ -3918,6 +3927,14 @@ Observer.prototype.observe = function(exclude)
 								//Stop old one
 								self.path = null;
 							break;
+						//Clear request
+						case MessageType.Clear:
+							//Clear
+							self.canvas.clear();
+							self.highlighter.clear();
+							//Delete local selection also
+							document.getSelection().removeAllRanges();
+							break;
 						default:
 							console.error("unknown message",message);
 					}	
@@ -4108,12 +4125,13 @@ Reflector.prototype.reflect = function(mirror)
 	
 	function queue(type,message) {
 		//Add message to queue
-		factory.appendMessage(type,message);
+		factory.appendMessage(type,message || {});
 		//If not already scheduled
 		if (!timer) 
 			//Flush in 20ms
 			timer = setTimeout(flush,20);
 	}
+	this.queue = queue;
 	
 	
 	var maxId = 1;
@@ -4583,6 +4601,20 @@ Reflector.prototype.reflect = function(mirror)
 		//Store state
 		self.path = false;
 	};
+};
+Reflector.prototype.clear = function()
+{
+	//Ensure we have canvas
+	if (!this.canvas || !this.highlighter)
+		//Error
+		throw new Error("You cannot clear wihtout being inited");
+	//Clear both
+	this.canvas.clear();
+	this.highlighter.clear();
+	//Delete local selection also
+	this.mirror.getSelection().removeAllRanges();
+	//Queue change
+	this.queue(MessageType.Clear);
 };
 
 Reflector.prototype.paint = function(flag)
