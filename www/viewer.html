@@ -129,6 +129,7 @@
 	};
 	//Create iframe	
 	var iframe = document.createElement("iframe");
+	iframe.style.border = "0px";
 	//Append it 
 	document.documentElement.appendChild(iframe);
 	//Get mirror
@@ -181,61 +182,8 @@
 	});
 	
 	reflector.on("resize",function(data){
-		iframe.width = data.width;
-		iframe.height = data.height;
-		highlightSelection();
-	});
-	
-	var selection = null;
-	var highlights = [];
-	
-	function highlightSelection(){
-		//Clean highligts first
-		for (var i=0;i<highlights.length;i++)
-			//REmove nodes
-			highlights[i].remove();
-		//Clean array
-		highlights = [];
-		
-		//Get rects
-		var rects = swis.Utils.getSelectionClientRects(mirror,selection);
-			
-		//Create a highlight for each rect
-		for (var i=0;i<rects.length;i++)
-		{
-			//Create new element
-			var high = document.createElement("div");
-			//Set class
-			high.className = "cursor";
-			//Set absolute positioning
-			high.style["pointer-events"] = "none";
-			high.style["position"] = "absolute";
-			high.style["top"] = rects[i].top+"px";
-			high.style["left"] = rects[i].left+"px";
-			high.style["width"] = rects[i].width+"px";
-			high.style["height"] = rects[i].height+"px";
-			high.style["border"] = "1px black solid";
-			high.style["background-color"] = "yellow";
-			high.style["margin"] = "0px";
-			high.style["padding"] = "0px";
-			high.style["opacity"] = "0.4";
-			high.style["z-index"] = "2147483646";
-			//Insert into
-			document.documentElement.appendChild(high);
-			//Push to highlights array
-			highlights.push(high);
-		}
-	}
-	reflector.on("change",function(){
-		//Update
-		//highlightSelection();
-	});
-	
-	reflector.on("remoteselectionchange",function(sel){
-		//Store new selection
-		selection = sel;
-		//Update
-		highlightSelection();
+		iframe.width = data.width + (iframe.width -iframe.contentWindow.document.documentElement.clientWidth);
+		iframe.height = data.height; + (iframe.height -iframe.contentWindow.document.documentElement.clientheight);
 	});
 	
 	//Drawing/not drawing

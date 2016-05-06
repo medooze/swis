@@ -311,7 +311,7 @@ module.exports = {
 	Utils: require("./lib/utils.js"),
 	Canvas: require("./lib/canvas.js")
 };
-},{"./lib/canvas.js":3,"./lib/message/factory.js":5,"./lib/message/parser.js":6,"./lib/message/type.js":7,"./lib/observer.js":9,"./lib/reflector.js":10,"./lib/utils.js":11}],3:[function(require,module,exports){
+},{"./lib/canvas.js":3,"./lib/message/factory.js":5,"./lib/message/parser.js":6,"./lib/message/type.js":7,"./lib/observer.js":9,"./lib/reflector.js":10,"./lib/utils.js":12}],3:[function(require,module,exports){
 
 function Path(canvas,color)
 {
@@ -344,7 +344,6 @@ function Canvas(document)
 	this.document = document;
 	// Create a blank div where we are going to put the canvas into.
 	this.canvas = document.createElement('canvas');
-	this.canvas.className = "cursor";
 	this.canvas.style["pointer-events"] = "none";
 	this.canvas.style.position="absolute";
 	this.canvas.style.overflow = 'visible';
@@ -359,6 +358,23 @@ function Canvas(document)
 	this.context = this.canvas.getContext("2d");
 }
 
+Canvas.prototype.contains = function(el)
+{
+	//Check if element is our canvas
+	return this.canvas === el;
+};
+
+Canvas.prototype.enablePointerEvents = function(flag)
+{
+	//Set tsyle
+	this.canvas.style["pointer-events"] = flag ? "auto": "none";
+};
+
+Canvas.prototype.setCursor = function(cursor)
+{
+	//Set tsyle
+	this.canvas.style["cursor"] = cursor;
+};
 
 Canvas.prototype.createPath = function(color)
 {
@@ -424,7 +440,7 @@ Canvas.prototype.clear = function()
 	this.redraw();
 };
 
-Canvas.prototype.stop = function() {
+Canvas.prototype.close = function() {
 	//Empty paths
 	this.paths = [];
 	//Empty current
@@ -3127,7 +3143,7 @@ MessageFactory.prototype.flush = function(useBlob)
 
 module.exports =  MessageFactory;
 
-},{"./bytebuffer.js":4,"./type.js":7,"pako":13}],6:[function(require,module,exports){
+},{"./bytebuffer.js":4,"./type.js":7,"pako":14}],6:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3339,7 +3355,7 @@ MessageParser.Parse = function(data)
 };
 
 module.exports = MessageParser;
-},{"./bytebuffer.js":4,"./type.js":7,"pako":13}],7:[function(require,module,exports){
+},{"./bytebuffer.js":4,"./type.js":7,"pako":14}],7:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -3375,6 +3391,8 @@ module.exports = [
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
+var Canvas = require("./canvas.js");
+var SelectionHighlighter = require("./selectionhighlighter.js")
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
@@ -3524,7 +3542,10 @@ Observer.prototype.observe = function(exclude)
 				//Ignore
 				doctype = "<!DOCTYPE html>";
 			//Exclude selectors
-			} else if (!(exclude && matches(child,exclude))) {
+			} else if (!(exclude && matches(child,exclude))
+				&& !(self.canvas && self.canvas.contains(child))
+				&& !(self.highlighter && self.highlighter.contains(child))
+			) {
 				//Clone child
 				var clonedchild = child.cloneNode(false);
 				//Remove HREF from anchors
@@ -3609,7 +3630,10 @@ Observer.prototype.observe = function(exclude)
 							var child = mutation.addedNodes[i];
 							//Ensure we don't have to exclude it
 							//We don't need to look recursively on parents because if they were already excluded, it will not have id
-							if (exclude && matches(child,exclude))
+							if (exclude && matches(child,exclude) 
+								|| self.canvas.contains(child)
+								|| self.highlighter.contains(child)
+							)
 								//Skip this
 								continue;
 							//Clone DOM element and add ids
@@ -3629,14 +3653,16 @@ Observer.prototype.observe = function(exclude)
 						//Get id for added node
 						var id = map.get(mutation.removedNodes[i]);
 						//console.log("removed "+id,mutation.removedNodes[i],mutation.removedNodes[i].parentNode);
-						//If not found
+						//If element was tracked
 						if (id)
+						{
 							//Put reference
 							message.deleted.push(id);
-						//Check if it has been inserted again
-						if (!mutation.removedNodes[i].parentNode)
-							//Add to GC list
-							deleted[id] = mutation.removedNodes[i];
+							//Check if it has been inserted again
+							if (!mutation.removedNodes[i].parentNode)
+								//Add to GC list
+								deleted[id] = mutation.removedNodes[i];
+						}
 							
 					}
 					//Push message to the queue
@@ -3769,6 +3795,10 @@ Observer.prototype.observe = function(exclude)
 			width: window.innerWidth,
 			height: window.innerHeight
 		});
+		//Redraw canvas
+		self.canvas && self.canvas.resize();
+		//Redraw highlights
+		self.highlighter && self.highlighter.redraw();
 	}),false);
 	
 	//Send initial size
@@ -3859,12 +3889,15 @@ Observer.prototype.observe = function(exclude)
 						case MessageType.MouseMove:
 							//Move cursor
 							self.emit("remotecursormove",{x: message.x,y: message.y});
+							//Check if we are drawing
+							if (self.path)
+								//Add point
+								self.path.add(message.x,message.y);
 							break;
 						//Selection change
 						case MessageType.SelectionChange:
 							//console.log("Selection change",message);
-							//Trigger selection change
-							self.emit("remoteselectionchange",{
+							self.highlighter.select({
 								anchorNode: reverse[message.anchorNode],
 								anchorOffset: message.anchorOffset,
 								isCollapsed: message.isCollapsed,
@@ -3877,10 +3910,13 @@ Observer.prototype.observe = function(exclude)
 						//Paint request
 						case MessageType.Paint:
 							//console.log("Paint",message);
-							//Trigger selection change
-							self.emit("remotepaint",{
-								drawing: message.flag
-							});
+							// reset the path when starting over
+							if (message.flag)
+								//Create new path
+								self.path = self.canvas.createPath('green');
+							else
+								//Stop old one
+								self.path = null;
 							break;
 						default:
 							console.error("unknown message",message);
@@ -3892,12 +3928,22 @@ Observer.prototype.observe = function(exclude)
 			});
 	
 	};
+	//Create canvas
+	this.canvas = new Canvas(document);
+	//Create seleciton hihglighter
+	this.highlighter = new SelectionHighlighter(document);
 };
 
 Observer.prototype.stop = function()
 {
 	//Stop mutation observer
 	this.observer.disconnect();
+	//SClose canvas
+	this.canvas.close();
+	//Close highlighter
+	this.highlighter.close();
+	//Clean any path
+	this.path = null;
 	//remove media query listeners
 	for (var i=0;i<this.mediaqueries.length;i++)
 		//Stop listener
@@ -3919,11 +3965,12 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"./utils.js":11,"events":1,"inherits":12}],10:[function(require,module,exports){
+},{"./canvas.js":3,"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"./selectionhighlighter.js":11,"./utils.js":12,"events":1,"inherits":13}],10:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
 var Canvas = require("./canvas.js");
+var SelectionHighlighter = require("./selectionhighlighter.js")
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
@@ -4240,6 +4287,8 @@ Reflector.prototype.reflect = function(mirror)
 		
 		//Process styles
 		processStyles();
+		//Always show scrollbars
+		mirror.documentElement.style.overflow = "scroll";
 		
 		//Listen mouse events
 		mirror.addEventListener ("mousemove",(this.onmousemove = function (event) {
@@ -4272,10 +4321,14 @@ Reflector.prototype.reflect = function(mirror)
 		}), true);
 		//Create painting canvas
 		self.canvas = new Canvas(mirror);
+		//Create highlighter
+		self.highlighter = new SelectionHighlighter(mirror);
 		//Prepare for resize
 		mirror.defaultView.addEventListener("resize", (this.onresize = function(e) {
 			//resize canvas
 			self.canvas.resize();
+			//Redraw highlights
+			self.highlighter.redraw();
 		}), true);
 		//Fire inited
 		self.emit("init",{href:href});
@@ -4353,6 +4406,10 @@ Reflector.prototype.reflect = function(mirror)
 								var target = reverse[message.target];
 								//Set data
 								target.setAttribute(message.key,message.value);
+								//Check it has not changed the html
+								if (target === mirror.documentElement )
+									//Always show scrollbars
+									mirror.documentElement.style.overflow = "scroll";
 								break;
 							case MessageType.CharacterData:
 								//console.log("CharData",message);
@@ -4470,7 +4527,7 @@ Reflector.prototype.reflect = function(mirror)
 							case MessageType.SelectionChange:
 								//console.log("Selection change",message);
 								//Trigger selection change
-								self.emit("remoteselectionchange",{
+								self.highlighter.select({
 									anchorNode: reverse[message.anchorNode],
 									anchorOffset: message.anchorOffset,
 									isCollapsed: message.isCollapsed,
@@ -4509,7 +4566,7 @@ Reflector.prototype.reflect = function(mirror)
 		//Store state
 		self.path = self.canvas.createPath('green');
 		//Set style of cursor
-		self.overlay.style["cursor"] = "pointer";
+		self.canvas.setCursor("pointer");
 		//Disable texg selection and oder interactions
 		event.stopPropagation();
 		event.preventDefault();
@@ -4522,7 +4579,7 @@ Reflector.prototype.reflect = function(mirror)
 				flag: false
 			});
 		//Set style of cursor
-		self.overlay.style["cursor"] = "";
+		self.canvas.setCursor("auto");
 		//Store state
 		self.path = false;
 	};
@@ -4542,19 +4599,8 @@ Reflector.prototype.paint = function(flag)
 		this.mirror.addEventListener("mousedown",this.onmousedown,true);
 		this.mirror.addEventListener("mouseleave",this.onmouseup,true);
 		this.mirror.addEventListener("mouseup",this.onmouseup,true);
-		//Add a div overlay
-		this.overlay = this.mirror.createElement("div");
-		//Set properties
-		this.overlay.style["position"]	 = "absolute";
-		this.overlay.style["top"]	 = "0px";
-		this.overlay.style["left"]	 = "0px";
-		this.overlay.style["width"]	 = "100%";
-		this.overlay.style["height"]	 = "100%";
-		this.overlay.style["margin"]	 = "0px";
-		this.overlay.style["padding"]	 = "0px";
-		this.overlay.style["z-index"]	 = "2147483646";
-		//Append to body
-		this.mirror.body.appendChild(this.overlay);
+		//Capture events on canvas
+		this.canvas.enablePointerEvents(true);
 		
 	}  else {
 		//Stop listening events
@@ -4565,8 +4611,8 @@ Reflector.prototype.paint = function(flag)
 		if (this.mousedown)
 			//Emulate it
 			this.onmouseup();
-		//Remove overlay
-		this.overlay.remove();
+		//Stop capturng events
+		this.canvas.enablePointerEvents(false);
 	}
 	
 	//Store
@@ -4576,6 +4622,12 @@ Reflector.prototype.paint = function(flag)
 
 Reflector.prototype.stop = function()
 {
+	//Stop painting
+	this.paint(false);
+	//Stop canvas
+	this.canvas.close();
+	//Stop higlhlighter
+	this.highlighter.close();
 	//Clean reverses
 	this.reverse = {};
 	this.map = new WeakMap();
@@ -4589,7 +4641,88 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./canvas.js":3,"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"events":1,"inherits":12}],11:[function(require,module,exports){
+},{"./canvas.js":3,"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"./selectionhighlighter.js":11,"events":1,"inherits":13}],11:[function(require,module,exports){
+var Utils = require("./utils.js");
+
+function SelectionHighlighter(document)
+{
+	this.document = document;
+	this.highlights = [];
+}
+
+
+SelectionHighlighter.prototype.clear = function()
+{
+	//Clean
+	this.selection = null;
+	this.redraw();
+};
+
+SelectionHighlighter.prototype.select = function(selection)
+{
+	//Store selection
+	this.selection = selection;
+	//Redraw
+	this.redraw();
+};
+
+SelectionHighlighter.prototype.redraw = function()
+{
+	//Clean highligts first
+	for (var i=0;i<this.highlights.length;i++)
+		//REmove nodes
+		this.highlights[i].remove();
+	
+	//Clean array
+	this.highlights = [];
+
+	//Get rects
+	var rects = Utils.getSelectionClientRects(this.document,this.selection);
+
+	//Create a highlight for each rect
+	for (var i=0;i<rects.length;i++)
+	{
+		//Create new element
+		var high = document.createElement("div");
+		//Set absolute positioning
+		high.style["pointer-events"] = "none";
+		high.style["position"] = "absolute";
+		high.style["top"] = rects[i].top+"px";
+		high.style["left"] = rects[i].left+"px";
+		high.style["width"] = rects[i].width+"px";
+		high.style["height"] = rects[i].height+"px";
+		high.style["border"] = "1px dotted orange";
+		high.style["background-color"] = "yellow";
+		high.style["margin"] = "0px";
+		high.style["padding"] = "0px";
+		high.style["opacity"] = "0.4";
+		high.style["z-index"] = "2147483646";
+		//Insert into
+		this.document.documentElement.appendChild(high);
+		//Push to this.highlights array
+		this.highlights.push(high);
+	}
+};
+
+SelectionHighlighter.prototype.contains = function(el)
+{
+	//Check each element in us
+	for (var i=0;i<this.highlights.length;i++)
+		//REmove nodes
+		if (this.highlights[i] === el)
+			return true;
+	//Not found
+	return false;
+};
+
+SelectionHighlighter.prototype.close = function()
+{
+	//clear
+	this.clear();
+};
+
+module.exports = SelectionHighlighter;
+},{"./utils.js":12}],12:[function(require,module,exports){
 function getSelectionClientRects(document,selection)
 {
 	//Check
@@ -4649,7 +4782,7 @@ function getSelectionClientRects(document,selection)
 module.exports = {
 	getSelectionClientRects: getSelectionClientRects
 }
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -4674,7 +4807,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -4690,7 +4823,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":14,"./lib/inflate":15,"./lib/utils/common":16,"./lib/zlib/constants":19}],14:[function(require,module,exports){
+},{"./lib/deflate":15,"./lib/inflate":16,"./lib/utils/common":17,"./lib/zlib/constants":20}],15:[function(require,module,exports){
 'use strict';
 
 
@@ -5092,7 +5225,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":16,"./utils/strings":17,"./zlib/deflate":21,"./zlib/messages":26,"./zlib/zstream":28}],15:[function(require,module,exports){
+},{"./utils/common":17,"./utils/strings":18,"./zlib/deflate":22,"./zlib/messages":27,"./zlib/zstream":29}],16:[function(require,module,exports){
 'use strict';
 
 
@@ -5512,7 +5645,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":16,"./utils/strings":17,"./zlib/constants":19,"./zlib/gzheader":22,"./zlib/inflate":24,"./zlib/messages":26,"./zlib/zstream":28}],16:[function(require,module,exports){
+},{"./utils/common":17,"./utils/strings":18,"./zlib/constants":20,"./zlib/gzheader":23,"./zlib/inflate":25,"./zlib/messages":27,"./zlib/zstream":29}],17:[function(require,module,exports){
 'use strict';
 
 
@@ -5616,7 +5749,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -5803,7 +5936,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":16}],18:[function(require,module,exports){
+},{"./common":17}],19:[function(require,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -5837,7 +5970,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],19:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 'use strict';
 
 
@@ -5889,7 +6022,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -5932,7 +6065,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],21:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 
 var utils   = require('../utils/common');
@@ -7782,7 +7915,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":16,"./adler32":18,"./crc32":20,"./messages":26,"./trees":27}],22:[function(require,module,exports){
+},{"../utils/common":17,"./adler32":19,"./crc32":21,"./messages":27,"./trees":28}],23:[function(require,module,exports){
 'use strict';
 
 
@@ -7824,7 +7957,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],23:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -8152,7 +8285,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],24:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 
 
@@ -9692,7 +9825,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":16,"./adler32":18,"./crc32":20,"./inffast":23,"./inftrees":25}],25:[function(require,module,exports){
+},{"../utils/common":17,"./adler32":19,"./crc32":21,"./inffast":24,"./inftrees":26}],26:[function(require,module,exports){
 'use strict';
 
 
@@ -10021,7 +10154,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":16}],26:[function(require,module,exports){
+},{"../utils/common":17}],27:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -10036,7 +10169,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],27:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 'use strict';
 
 
@@ -11240,7 +11373,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":16}],28:[function(require,module,exports){
+},{"../utils/common":17}],29:[function(require,module,exports){
 'use strict';
 
 

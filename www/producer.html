@@ -137,10 +137,6 @@
 		transport.onmessage(message.data);
 	});	
 
-	
-	//Create remote drawing canvas
-	var drawing = false;
-	var canvas = new swis.Canvas(document);
 	var remoteCursor;
 	observer.on("remotecursormove",function(data){
 		//Check if first cursor
@@ -169,81 +165,6 @@
 		//Set new position
 		remoteCursor.style["left"] = data.x + "px";
 		remoteCursor.style["top"] =  data.y + "px";
-		
-		if (drawing)
-			drawing.add(data.x,data.y);
-	});
-	
-	var selection = null;
-	var highlights = [];
-	
-	function highlightSelection(){
-		//Clean highligts first
-		for (var i=0;i<highlights.length;i++)
-			//REmove nodes
-			highlights[i].remove();
-		//Clean array
-		highlights = [];
-		
-		//Get rects
-		var rects = swis.Utils.getSelectionClientRects(document,selection);
-			
-		//Create a highlight for each rect
-		for (var i=0;i<rects.length;i++)
-		{
-			//Create new element
-			var high = document.createElement("div");
-			//Set class
-			high.className = "cursor";
-			//Set absolute positioning
-			high.style["pointer-events"] = "none";
-			high.style["position"] = "absolute";
-			high.style["top"] = rects[i].top+"px";
-			high.style["left"] = rects[i].left+"px";
-			high.style["width"] = rects[i].width+"px";
-			high.style["height"] = rects[i].height+"px";
-			high.style["border"] = "1px black solid";
-			high.style["background-color"] = "yellow";
-			high.style["margin"] = "0px";
-			high.style["padding"] = "0px";
-			high.style["opacity"] = "0.4";
-			high.style["z-index"] = "2147483646";
-			//Insert into
-			document.documentElement.appendChild(high);
-			//Push to highlights array
-			highlights.push(high);
-		}
-		
-		
-	}
-	
-	observer.on("remoteselectionchange",function(sel){
-		//Store new selection
-		selection = sel;
-		//Update
-		highlightSelection();
-	});
-	
-	observer.on("change",function(){
-		//Update
-		//highlightSelection();
-	});
-	
-	
-	observer.on("remotepaint",function(event){
-		// reset the path when starting over
-		if (event.drawing)
-			//Create new path
-			drawing = canvas.createPath('green');
-		else
-			//Stop old one
-			drawing = null;
-		
-	});
-	
-	window.addEventListener("resize",function(message){
-		highlightSelection();
-		canvas.resize();
 	});
 	
 	
