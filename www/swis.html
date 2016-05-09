@@ -60,15 +60,25 @@
 			11: 1
 		}
 	});
-	var blob = f.flush();
+
+	//var blob = f.flush();
 	
-	swis.MessageParser.Parse(blob)
-		.then(function(parser){
-			while(parser.hasNext())
-				console.log(parser.next());
-		})
-		.catch(function(e){
-			console.error(e);
-		});
+	var chunks = f.flush(false,20);
+	
+	var aggregator = new swis.MessageChunkAggregator();
+	
+	for (var i=0;i<chunks.length;++i)
+	{
+		var blob = aggregator.push(chunks[i]);
+		for (var j=0;j<blob.length;j++)
+			swis.MessageParser.Parse(blob[j])
+				.then(function(parser){
+					while(parser.hasNext())
+						console.log(parser.next());
+				})
+				.catch(function(e){
+					console.error(e);
+				});
+	}
 
 </script>

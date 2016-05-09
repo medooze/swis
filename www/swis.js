@@ -308,10 +308,11 @@ module.exports = {
 	MessageType: require("./lib/message/type.js"),
 	MessageFactory: require("./lib/message/factory.js"),
 	MessageParser: require("./lib/message/parser.js"),
+	MessageChunkAggregator: require("./lib/message/aggregator.js"),
 	Utils: require("./lib/utils.js"),
 	Canvas: require("./lib/canvas.js")
 };
-},{"./lib/canvas.js":3,"./lib/message/factory.js":5,"./lib/message/parser.js":6,"./lib/message/type.js":7,"./lib/observer.js":9,"./lib/reflector.js":10,"./lib/utils.js":12}],3:[function(require,module,exports){
+},{"./lib/canvas.js":3,"./lib/message/aggregator.js":4,"./lib/message/factory.js":6,"./lib/message/parser.js":7,"./lib/message/type.js":8,"./lib/observer.js":10,"./lib/reflector.js":11,"./lib/utils.js":13}],3:[function(require,module,exports){
 
 function Path(canvas,color)
 {
@@ -453,6 +454,74 @@ Canvas.prototype.close = function() {
 
 module.exports = Canvas;
 },{}],4:[function(require,module,exports){
+var ByteBuffer = require("./bytebuffer.js");
+
+function MessageChunkAggregator()
+{
+}
+
+
+MessageChunkAggregator.prototype.push = function(buffer)
+{
+	var messages =[];
+	
+	//Process input stream
+	var pos = 0;
+	
+	//Read chunk by chunk
+	while(pos<buffer.byteLength)
+	{
+		//If it is the first message
+		if (!this.message)
+		{
+			//We need to read the length
+			var header = new ByteBuffer(0);
+			//Reuse the one that we have been passed
+			header.buffer = buffer;
+			header.view = new Uint8Array(header.buffer);
+			header.limit = header.buffer.byteLength;
+			//Read message size
+			this.messageSize = header.readVarint32();
+			this.messagePos = 0;
+			//Skip header 
+			pos += ByteBuffer.calculateVarint32(this.messageSize);
+			
+			//Create newmessage
+			this.message = new ArrayBuffer(this.messageSize);
+			this.view = new Uint8Array(this.message);
+		
+		} else {
+			//Get number of 
+			var len = buffer.byteLength-pos;
+			//Check if we can complete the message
+			if (len>=this.messageSize-this.messagePos)
+				//Read only the pending ammount
+				len = this.messageSize-this.messagePos;
+			//Append
+			this.view.set(new Uint8Array(buffer,pos,len),this.messagePos);
+			//Increase length
+			this.messagePos += len;
+			//increase global len
+			pos += len;
+			//Check if we have a complete message
+			if (this.messagePos === this.messageSize)
+			{
+				//Append to list
+				messages.push(this.message);
+				//Clean
+				this.message = null;
+				this.view = null;
+				this.messageSize = 0;
+				this.messagePos = 0;
+			}
+		}
+	}
+	
+	return messages;
+};
+
+module.exports = MessageChunkAggregator;
+},{"./bytebuffer.js":5}],5:[function(require,module,exports){
 "use strict";
 
     /**
@@ -2898,7 +2967,7 @@ module.exports = Canvas;
     };
 
 module.exports = ByteBuffer;
-},{}],5:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
 var MessageType = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3116,7 +3185,7 @@ MessageFactory.prototype.appendMessage = function(type,message)
 	this.size += buffer.byteLength;
 };
 
-MessageFactory.prototype.flush = function(useBlob)
+MessageFactory.prototype.flush = function(useBlob,chunked)
 {
 	var data;
 	//Check if we can return a blob directly
@@ -3124,10 +3193,10 @@ MessageFactory.prototype.flush = function(useBlob)
 	{
 		//Create blob with parts
 		data =  new Blob(this.parts);
-	} else {
+	} else if (!chunked) {
 		//Create new array
 		var offset = 0;
-		var data = new ArrayBuffer(this.size);
+		data = new ArrayBuffer(this.size);
 		var buffer = new Uint8Array(data);
 		//Append each one
 		for (var i=0;i<this.parts.length;i++)
@@ -3137,6 +3206,94 @@ MessageFactory.prototype.flush = function(useBlob)
 			//Increase size
 			offset += this.parts[i].byteLength;
 		}
+	} else {
+		//Get size of header
+		var headSize = ByteBuffer.calculateVarint32(this.size);
+		//Create header
+		var header = new ByteBuffer(headSize);
+		//Set the message size
+		header.writeVarint32(this.size);
+		//End it
+		header.flip();
+		//Create the chunk array
+		data = [];
+
+		//Amount left
+		var left = this.size;
+
+		//Calculate the size of the first chunk
+		var chunkSize = chunked;
+
+		//If we can put all in one
+		if (left+headSize<chunkSize)
+			//Limit it
+			chunkSize = left+headSize;
+
+		//Create new array up to chunk size
+		var offset = 0;
+		var chunk = new ArrayBuffer(chunkSize);
+		var buffer = new Uint8Array(chunk);
+		//Append chunk
+		data.push(chunk);
+		//Get header buffer
+		var head = header.toArrayBuffer(true);
+		//Append header
+		buffer.set(new Uint8Array(head),offset);
+		//Increase size
+		offset += headSize;
+		
+		//Append each one
+		for (var i=0;i<this.parts.length;i++)
+		{
+			//Get 
+			var partSize = this.parts[i].byteLength;
+			var partPos = 0;
+			
+			//While we still have data on the parts
+			while (partPos<partSize)
+			{
+				//Get what is let
+				var len = partSize-partPos;
+			
+				//Check if we can append all in this chunk
+				if (offset+len<=chunkSize)
+				{
+					//Append
+					buffer.set(new Uint8Array(this.parts[i],partPos,len),offset);
+					//Increase size
+					offset += len;
+					//Decrease left
+					left -= len; 
+					//Move part position
+					partPos += len;
+				} else {
+					//Get what can we push in this chunk
+					len = chunkSize-offset;
+					//Put it on this chunk
+					buffer.set(new Uint8Array(this.parts[i],partPos,len),offset);
+					//Decrease left
+					left -= len;
+					//Move part position
+					partPos += len;
+
+					//Calculate the size of the next chunk
+					chunkSize = chunked;
+
+					//If we can put all in one
+					if (left<chunkSize)
+						//Limit it
+						chunkSize = left;
+
+					//Create new array up to chunk size
+					offset = 0;
+					chunk = new ArrayBuffer(chunkSize);
+					buffer = new Uint8Array(chunk);
+					//Append chunk
+					data.push(chunk);
+				}
+			}
+		}
+		
 	}
 	//Clear parts
 	this.parts = [];
@@ -3148,7 +3305,7 @@ MessageFactory.prototype.flush = function(useBlob)
 
 module.exports =  MessageFactory;
 
-},{"./bytebuffer.js":4,"./type.js":7,"pako":14}],6:[function(require,module,exports){
+},{"./bytebuffer.js":5,"./type.js":8,"pako":15}],7:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3363,7 +3520,7 @@ MessageParser.Parse = function(data)
 };
 
 module.exports = MessageParser;
-},{"./bytebuffer.js":4,"./type.js":7,"pako":14}],7:[function(require,module,exports){
+},{"./bytebuffer.js":5,"./type.js":8,"pako":15}],8:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -3374,7 +3531,7 @@ for (var i = 0; i<Types.length; ++i)
 	Type[Types[i]] = i;
 
 module.exports = Type;
-},{"./types.js":8}],8:[function(require,module,exports){
+},{"./types.js":9}],9:[function(require,module,exports){
 // Observer -> Reflector messages
 module.exports = [
 	"HTML",
@@ -3396,12 +3553,14 @@ module.exports = [
 	"Paint",
 	"Clear"
 ];
-},{}],9:[function(require,module,exports){
+},{}],10:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
+var MessageChunkAggregator = require("./message/aggregator.js");
 var Canvas = require("./canvas.js");
 var SelectionHighlighter = require("./selectionhighlighter.js")
+
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
@@ -3416,8 +3575,17 @@ function Observer(transport,options)
 	this.mediaqueries = [];
 	//Set defaults
 	this.options = Object.assign({
-		blob: true
+		blob: true,
+		chunk: 0
 	},options);
+	//Are we using chunked transport?
+	if (this.options.chunk)
+	{
+		//Ensure it is not blob
+		this.options.blob = false;
+		//If we are used a chunked transport, create dechunker
+		this.aggregator = new MessageChunkAggregator();
+	}
 	//Make us an event emitter
 	EventEmitter.call(this);
 }
@@ -3446,8 +3614,17 @@ Observer.prototype.observe = function(exclude)
 		//Ensure we have something to send
 		if (!factory.isEmpty())
 		{
-			//Send messages
-			transport.send(factory.flush(self.options.blob));
+			//Get messages
+			var message = factory.flush(self.options.blob,self.options.chunk);
+			//If we have to send chunks on transport
+			if (self.options.chunk)
+				//For each chunk
+				for (var i=0;i<message.length;i++)
+					//Send messages
+					transport.send(message[i]);
+			else
+				//Send messages
+				transport.send(message);
 			//clean queue
 			factory = new MessageFactory();
 		}
@@ -3846,110 +4023,123 @@ Observer.prototype.observe = function(exclude)
 	//Listen for message changes again, as listener has been desroyed 
 	transport.onmessage  = function(message)
 	{	
+		var messages;
+		
 		//Get blob
 		var blob = message.data || message;
 		
-		//Create parser
-		MessageParser.Parse(blob)
-			.then(function(parser)
-			{
-				//For each message
-				while(parser.hasNext())
-				{		
+		//If we are chunked
+		if (self.options.chunk)
+			//Dechunk them
+			messages = self.aggregator.push(blob);
+		else
+			//ONly one
+			messages = [blob];
+		
+		//For each group of messages
+		for (var n=0;n<messages.length;n++)
+		{
+			//Create parser
+			MessageParser.Parse(messages[n])
+				.then(function(parser)
+				{
+					//For each message
+					while(parser.hasNext())
+					{		
 
-					//Get nexr parsed message
-					var parsed = parser.next();
-					//get type
-					var type = parsed.type;
-					//Get message
-					var message = parsed.message;
+						//Get nexr parsed message
+						var parsed = parser.next();
+						//get type
+						var type = parsed.type;
+						//Get message
+						var message = parsed.message;
 
-					//console.log(message);
-					switch(type)
-					{
-						//Add media queries
-						case MessageType.MediaQueryRequest:
-							var matched = false;
-							var matches = {};
-							//For all media queries
-							for (var k in message.queries)
-							{
-								//Create media query
-								var mql = window.matchMedia(message.queries[k]);
-								//Set id
-								mql.id = k;
-								//If it is matched
-								if (mql.matches) 
+						//console.log(message);
+						switch(type)
+						{
+							//Add media queries
+							case MessageType.MediaQueryRequest:
+								var matched = false;
+								var matches = {};
+								//For all media queries
+								for (var k in message.queries)
 								{
-									//Push it
-									matches[k] = true;
-									//At least one matched
-									matched = true;
+									//Create media query
+									var mql = window.matchMedia(message.queries[k]);
+									//Set id
+									mql.id = k;
+									//If it is matched
+									if (mql.matches) 
+									{
+										//Push it
+										matches[k] = true;
+										//At least one matched
+										matched = true;
+									}
+									//Push it to the list
+									self.mediaqueries.push(mql);
+									//Listen for changes
+									mql.addListener(self.mediaQueryListener);
 								}
-								//Push it to the list
-								self.mediaqueries.push(mql);
-								//Listen for changes
-								mql.addListener(self.mediaQueryListener);
-							}
-							//If one matched
-							if (matched)
-							{
-								//Send event
-								queue(MessageType.MediaQueryMatches,{
-									matches: matches
+								//If one matched
+								if (matched)
+								{
+									//Send event
+									queue(MessageType.MediaQueryMatches,{
+										matches: matches
+									});
+								}
+								break;
+							//Mouse cursor
+							case MessageType.MouseMove:
+								//Move cursor
+								self.emit("remotecursormove",{x: message.x,y: message.y});
+								//Check if we are drawing
+								if (self.path)
+									//Add point
+									self.path.add(message.x,message.y);
+								break;
+							//Selection change
+							case MessageType.SelectionChange:
+								//console.log("Selection change",message);
+								self.highlighter.select({
+									anchorNode: reverse[message.anchorNode],
+									anchorOffset: message.anchorOffset,
+									isCollapsed: message.isCollapsed,
+									startContainer: reverse[message.startContainer],
+									startOffset: message.startOffset,
+									endContainer: reverse[message.endContainer],
+									endOffset: message.endOffset
 								});
-							}
-							break;
-						//Mouse cursor
-						case MessageType.MouseMove:
-							//Move cursor
-							self.emit("remotecursormove",{x: message.x,y: message.y});
-							//Check if we are drawing
-							if (self.path)
-								//Add point
-								self.path.add(message.x,message.y);
-							break;
-						//Selection change
-						case MessageType.SelectionChange:
-							//console.log("Selection change",message);
-							self.highlighter.select({
-								anchorNode: reverse[message.anchorNode],
-								anchorOffset: message.anchorOffset,
-								isCollapsed: message.isCollapsed,
-								startContainer: reverse[message.startContainer],
-								startOffset: message.startOffset,
-								endContainer: reverse[message.endContainer],
-								endOffset: message.endOffset
-							});
-							break;
-						//Paint request
-						case MessageType.Paint:
-							//console.log("Paint",message);
-							// reset the path when starting over
-							if (message.flag)
-								//Create new path
-								self.path = self.canvas.createPath('green');
-							else
-								//Stop old one
-								self.path = null;
-							break;
-						//Clear request
-						case MessageType.Clear:
-							//Clear
-							self.canvas.clear();
-							self.highlighter.clear();
-							//Delete local selection also
-							document.getSelection().removeAllRanges();
-							break;
-						default:
-							console.error("unknown message",message);
-					}	
-				}
-			})
-			.catch(function(error){
-				console.error(error);
-			});
-	
+								break;
+							//Paint request
+							case MessageType.Paint:
+								//console.log("Paint",message);
+								// reset the path when starting over
+								if (message.flag)
+									//Create new path
+									self.path = self.canvas.createPath('green');
+								else
+									//Stop old one
+									self.path = null;
+								break;
+							//Clear request
+							case MessageType.Clear:
+								//Clear
+								self.canvas.clear();
+								self.highlighter.clear();
+								//Delete local selection also
+								document.getSelection().removeAllRanges();
+								break;
+							default:
+								console.error("unknown message",message);
+						}	
+					}
+				})
+				.catch(function(error){
+					console.error(error);
+				});
+		}
 	};
 	//Create canvas
 	this.canvas = new Canvas(document);
@@ -3988,10 +4178,11 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./canvas.js":3,"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"./selectionhighlighter.js":11,"./utils.js":12,"events":1,"inherits":13}],10:[function(require,module,exports){
+},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/type.js":8,"./selectionhighlighter.js":12,"./utils.js":13,"events":1,"inherits":14}],11:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
+var MessageChunkAggregator = require("./message/aggregator.js");
 var Canvas = require("./canvas.js");
 var SelectionHighlighter = require("./selectionhighlighter.js")
 
@@ -4093,8 +4284,17 @@ function Reflector(transport,options)
 	this.factory =  new MessageFactory(); 
 	//Set defaults
 	this.options = Object.assign({
-		blob: true
+		blob: true,
+		chunk: false
 	},options);
+	//Are we using chunked transport?
+	if (this.options.chunk)
+	{
+		//Ensure it is not blob
+		this.options.blob = false;
+		//If we are used a chunked transport, create dechunker
+		this.aggregator = new MessageChunkAggregator();
+	}
 	//Make us an event emitter
 	EventEmitter.call(this);
 }
@@ -4119,8 +4319,17 @@ Reflector.prototype.reflect = function(mirror)
 	var timer;
 	
 	function flush() {
-		//Send messages
-		transport.send(factory.flush(self.options.blob));
+		//Get messages
+		var message = factory.flush(self.options.blob,self.options.chunk);
+		//If we have to send chunks on transport
+		if (self.options.chunk)
+			//For each chunk
+			for (var i=0;i<message.length;i++)
+				//Send messages
+				transport.send(message[i]);
+		else
+			//Send messages
+			transport.send(message);
 		//clean queue
 		factory = new MessageFactory();
 		//Clear timer (jic)
@@ -4370,223 +4579,237 @@ Reflector.prototype.reflect = function(mirror)
 
 	transport.onmessage = function(message)
 	{	
+		var messages;
+		
 		//Get blob
 		var blob = message.data || message;
 		
-		//Create parser
-		MessageParser.Parse(blob)
-			.then(function(parser)
-			{
-				//List of deleted nodes
-				var deleted = {};
-				//For each message
-				while(parser.hasNext())
+		//If we are chunked
+		if (self.options.chunk)
+			//Dechunk them
+			messages = self.aggregator.push(blob);
+		else
+			//ONly one
+			messages = [blob];
+		
+		//For each group of messages
+		for (var n=0;n<messages.length;n++)
+		{
+			//Create parser
+			MessageParser.Parse(messages[n])
+				.then(function(parser)
 				{
-					try {
-						//Get nexr parsed message
-						var parsed = parser.next();
-						//get type
-						var type = parsed.type;
-						//Get message
-						var message = parsed.message;
-						
-						//console.log(message);
-						switch(type)
-						{
-							case MessageType.HTML:
-								//console.log("HTML",message);
-								//Init
-								init(message.href,message.html);
-								break;
-							case MessageType.ChildList:
-								//console.log("ChildList",message);
-								//Get target
-								var target = reverse[message.target];
-								//Get previous
-								var previous = reverse[message.previous];
-								//Get next
-								var next = reverse[message.next];
-								//Deleted elements
-								for (var i=0;i<message.deleted.length;i++)
-								{
-									//Add to the deleted ones
-									deleted[message.deleted[i]] = true;
-									//Remove node
-									reverse[message.deleted[i]].remove();
-								}
-								//Added elements
-								for (var i=0;i<message.added.length;i++)
-								{
-									//Check if it is an id or a new element
-									if (typeof message.added[i] === "string")
+					//List of deleted nodes
+					var deleted = {};
+					//For each message
+					while(parser.hasNext())
+					{
+						try {
+							//Get nexr parsed message
+							var parsed = parser.next();
+							//get type
+							var type = parsed.type;
+							//Get message
+							var message = parsed.message;
+
+							//console.log(message);
+							switch(type)
+							{
+								case MessageType.HTML:
+									//console.log("HTML",message);
+									//Init
+									init(message.href,message.html);
+									break;
+								case MessageType.ChildList:
+									//console.log("ChildList",message);
+									//Get target
+									var target = reverse[message.target];
+									//Get previous
+									var previous = reverse[message.previous];
+									//Get next
+									var next = reverse[message.next];
+									//Deleted elements
+									for (var i=0;i<message.deleted.length;i++)
 									{
-										//Create node from HTML
-										var node = createElementFromHTML(message.added[i]);
-										//Pupulate it
-										populate(node);
-										//Add
-										target.insertBefore(node,next);
-									} else {
-										//Delete from deleted (jic)
-										delete(deleted[message.added[i]]);
-										//Add it
-										target.insertBefore(reverse[message.added[i]],next);
+										//Add to the deleted ones
+										deleted[message.deleted[i]] = true;
+										//Remove node
+										reverse[message.deleted[i]].remove();
 									}
-								}
-								break;
-							case MessageType.Attributes:
-								//console.log("Atrribute",message);
-								//Get target
-								var target = reverse[message.target];
-								//Set data
-								target.setAttribute(message.key,message.value);
-								//Check it has not changed the html
-								if (target === mirror.documentElement )
-									//Always show scrollbars
-									mirror.documentElement.style.overflow = "scroll";
-								break;
-							case MessageType.CharacterData:
-								//console.log("CharData",message);
-								//Get target
-								var target = reverse[message.target];
-								//Set data
-								target.data = message.text;
-								break;
-							//Hovered
-							case MessageType.MouseOver:
-								//console.log("Hover",message);
-								//Get target
-								var target = reverse[message.target];
-								//Hover target
-								hover(target);
-								break;	
-							//Focus
-							case MessageType.Focus:
-								//console.log("Focus",message);
-								//Get target
-								var target = reverse[message.target];
+									//Added elements
+									for (var i=0;i<message.added.length;i++)
+									{
+										//Check if it is an id or a new element
+										if (typeof message.added[i] === "string")
+										{
+											//Create node from HTML
+											var node = createElementFromHTML(message.added[i]);
+											//Pupulate it
+											populate(node);
+											//Add
+											target.insertBefore(node,next);
+										} else {
+											//Delete from deleted (jic)
+											delete(deleted[message.added[i]]);
+											//Add it
+											target.insertBefore(reverse[message.added[i]],next);
+										}
+									}
+									break;
+								case MessageType.Attributes:
+									//console.log("Atrribute",message);
+									//Get target
+									var target = reverse[message.target];
+									//Set data
+									target.setAttribute(message.key,message.value);
+									//Check it has not changed the html
+									if (target === mirror.documentElement )
+										//Always show scrollbars
+										mirror.documentElement.style.overflow = "scroll";
+									break;
+								case MessageType.CharacterData:
+									//console.log("CharData",message);
+									//Get target
+									var target = reverse[message.target];
+									//Set data
+									target.data = message.text;
+									break;
+								//Hovered
+								case MessageType.MouseOver:
+									//console.log("Hover",message);
+									//Get target
+									var target = reverse[message.target];
+									//Hover target
+									hover(target);
+									break;	
 								//Focus
-								target.focus();
-								break;	
-							//Blur
-							case MessageType.Blur:
-								//console.log("Blur",message);
-								//Get target
-								var target = reverse[message.target];
-								//Blur focus
-								target.blur();
-								break;
-							//input
-							case MessageType.Input:
-								//console.log("Input",message);
-								//Get target
-								var target = reverse[message.target];
-								//Set value
-								target.value = message.value;
-								break;
-							//Set exteranl CSS
-							case MessageType.CSS:
-								//console.log("External CSS content",message.target);
-								//Get target
-								var target = reverse[message.target];
-								//Create new style
-								var style = mirror.createElement("style");
-								//Set all attributes
-								for (var k in target.attributes)
-									//Clone in style element
-									style[k] = target[k];
-								//Set css
-								style.innerHTML = resolveCSSURLs(message.css,message.href);
-								//Replace in parent node the target by element
-								target.parentNode.replaceChild(style,target);
-								//Set the  new element in reverse
-								replace(message.target,style);
-								//Process styles on next run
-								setTimeout(processStyles,0);
-								//Reset
-								break;
-							//External css fallback
-							case MessageType.Link:
-								//console.log("External CSS link",message.target);
-								//Get target
-								var target = reverse[message.target];
-								//Process styles on load
-								target.onload = processStyles;
-								//Set href
-								target.href = message.href;
-								break;
-							//Queries match
-							case MessageType.MediaQueryMatches:
-								//console.log("Queries match",message);
-								//For all changes
-								for (var id in message.matches)
-									//Enable/disable associated element
-									mediarules[id].element.disabled = !message.matches[id];
-								break;
-							//Resized
-							case MessageType.Resize:
-								//console.log("Resized",message);
-								//Event
-								self.emit("resize",{width: message.width, height: message.height});
-								break;
-							//Rebase
-							case MessageType.Base:
-								//console.log("Rebase",message);
-								//Get base element
-								var base = mirror.querySelector("base");
-								//Check if it exist already
-								if (!base)
-								{
-									//Craete base element
-									base = mirror.createElement("base");
-									//Set href to documenbt location
-									base.setAttribute("href", message.href);
-									//Append to head in the cloned doc
-									mirror.querySelector("head").appendChild(base);
-								} else {
-									//JUst change href
-									base.setAttribute("href", message.href);
-								}
-								break;
-							//Mouse cursor
-							case MessageType.MouseMove:
-								//console.log("Mouse cursor",message);
-								//Move cursor
-								self.emit("remotecursormove",{
-									x: message.x,
-									y: message.y
-								});
-								break;
-							//Selection change
-							case MessageType.SelectionChange:
-								//console.log("Selection change",message);
-								//Trigger selection change
-								self.highlighter.select({
-									anchorNode: reverse[message.anchorNode],
-									anchorOffset: message.anchorOffset,
-									isCollapsed: message.isCollapsed,
-									startContainer: reverse[message.startContainer],
-									startOffset: message.startOffset,
-									endContainer: reverse[message.endContainer],
-									endOffset: message.endOffset
-								});
-								break;
-							default:
-								console.error("unknown message",message);
+								case MessageType.Focus:
+									//console.log("Focus",message);
+									//Get target
+									var target = reverse[message.target];
+									//Focus
+									target.focus();
+									break;	
+								//Blur
+								case MessageType.Blur:
+									//console.log("Blur",message);
+									//Get target
+									var target = reverse[message.target];
+									//Blur focus
+									target.blur();
+									break;
+								//input
+								case MessageType.Input:
+									//console.log("Input",message);
+									//Get target
+									var target = reverse[message.target];
+									//Set value
+									target.value = message.value;
+									break;
+								//Set exteranl CSS
+								case MessageType.CSS:
+									//console.log("External CSS content",message.target);
+									//Get target
+									var target = reverse[message.target];
+									//Create new style
+									var style = mirror.createElement("style");
+									//Set all attributes
+									for (var k in target.attributes)
+										//Clone in style element
+										style[k] = target[k];
+									//Set css
+									style.innerHTML = resolveCSSURLs(message.css,message.href);
+									//Replace in parent node the target by element
+									target.parentNode.replaceChild(style,target);
+									//Set the  new element in reverse
+									replace(message.target,style);
+									//Process styles on next run
+									setTimeout(processStyles,0);
+									//Reset
+									break;
+								//External css fallback
+								case MessageType.Link:
+									//console.log("External CSS link",message.target);
+									//Get target
+									var target = reverse[message.target];
+									//Process styles on load
+									target.onload = processStyles;
+									//Set href
+									target.href = message.href;
+									break;
+								//Queries match
+								case MessageType.MediaQueryMatches:
+									//console.log("Queries match",message);
+									//For all changes
+									for (var id in message.matches)
+										//Enable/disable associated element
+										mediarules[id].element.disabled = !message.matches[id];
+									break;
+								//Resized
+								case MessageType.Resize:
+									//console.log("Resized",message);
+									//Event
+									self.emit("resize",{width: message.width, height: message.height});
+									break;
+								//Rebase
+								case MessageType.Base:
+									//console.log("Rebase",message);
+									//Get base element
+									var base = mirror.querySelector("base");
+									//Check if it exist already
+									if (!base)
+									{
+										//Craete base element
+										base = mirror.createElement("base");
+										//Set href to documenbt location
+										base.setAttribute("href", message.href);
+										//Append to head in the cloned doc
+										mirror.querySelector("head").appendChild(base);
+									} else {
+										//JUst change href
+										base.setAttribute("href", message.href);
+									}
+									break;
+								//Mouse cursor
+								case MessageType.MouseMove:
+									//console.log("Mouse cursor",message);
+									//Move cursor
+									self.emit("remotecursormove",{
+										x: message.x,
+										y: message.y
+									});
+									break;
+								//Selection change
+								case MessageType.SelectionChange:
+									//console.log("Selection change",message);
+									//Trigger selection change
+									self.highlighter.select({
+										anchorNode: reverse[message.anchorNode],
+										anchorOffset: message.anchorOffset,
+										isCollapsed: message.isCollapsed,
+										startContainer: reverse[message.startContainer],
+										startOffset: message.startOffset,
+										endContainer: reverse[message.endContainer],
+										endOffset: message.endOffset
+									});
+									break;
+								default:
+									console.error("unknown message",message);
+							}
+						} catch (e) {
+							console.error(e);
 						}
-					} catch (e) {
-						console.error(e);
 					}
-				}
-				//Garbage collect
-				for (var id in deleted)
-					//Release delete node refs
-					release(id);
-				//Send changed event
-				self.emit("change");
-			}).catch(function(error){
-				console.error(error);
-			});
+					//Garbage collect
+					for (var id in deleted)
+						//Release delete node refs
+						release(id);
+					//Send changed event
+					self.emit("change");
+				}).catch(function(error){
+					console.error(error);
+				});
+		}
 	};
 	
 	//Create listener for mousedown/up for future use
@@ -4694,7 +4917,7 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./canvas.js":3,"./message/factory.js":5,"./message/parser.js":6,"./message/type.js":7,"./selectionhighlighter.js":11,"events":1,"inherits":13}],11:[function(require,module,exports){
+},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/type.js":8,"./selectionhighlighter.js":12,"events":1,"inherits":14}],12:[function(require,module,exports){
 var Utils = require("./utils.js");
 
 function SelectionHighlighter(document)
@@ -4775,7 +4998,7 @@ SelectionHighlighter.prototype.close = function()
 };
 
 module.exports = SelectionHighlighter;
-},{"./utils.js":12}],12:[function(require,module,exports){
+},{"./utils.js":13}],13:[function(require,module,exports){
 function getSelectionClientRects(document,selection)
 {
 	//Check
@@ -4835,7 +5058,7 @@ function getSelectionClientRects(document,selection)
 module.exports = {
 	getSelectionClientRects: getSelectionClientRects
 }
-},{}],13:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -4860,7 +5083,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],14:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -4876,7 +5099,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":15,"./lib/inflate":16,"./lib/utils/common":17,"./lib/zlib/constants":20}],15:[function(require,module,exports){
+},{"./lib/deflate":16,"./lib/inflate":17,"./lib/utils/common":18,"./lib/zlib/constants":21}],16:[function(require,module,exports){
 'use strict';
 
 
@@ -5278,7 +5501,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":17,"./utils/strings":18,"./zlib/deflate":22,"./zlib/messages":27,"./zlib/zstream":29}],16:[function(require,module,exports){
+},{"./utils/common":18,"./utils/strings":19,"./zlib/deflate":23,"./zlib/messages":28,"./zlib/zstream":30}],17:[function(require,module,exports){
 'use strict';
 
 
@@ -5698,7 +5921,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":17,"./utils/strings":18,"./zlib/constants":20,"./zlib/gzheader":23,"./zlib/inflate":25,"./zlib/messages":27,"./zlib/zstream":29}],17:[function(require,module,exports){
+},{"./utils/common":18,"./utils/strings":19,"./zlib/constants":21,"./zlib/gzheader":24,"./zlib/inflate":26,"./zlib/messages":28,"./zlib/zstream":30}],18:[function(require,module,exports){
 'use strict';
 
 
@@ -5802,7 +6025,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],18:[function(require,module,exports){
+},{}],19:[function(require,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -5989,7 +6212,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":17}],19:[function(require,module,exports){
+},{"./common":18}],20:[function(require,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -6023,7 +6246,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],20:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 'use strict';
 
 
@@ -6075,7 +6298,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],21:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -6118,7 +6341,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],22:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 'use strict';
 
 var utils   = require('../utils/common');
@@ -7968,7 +8191,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":17,"./adler32":19,"./crc32":21,"./messages":27,"./trees":28}],23:[function(require,module,exports){
+},{"../utils/common":18,"./adler32":20,"./crc32":22,"./messages":28,"./trees":29}],24:[function(require,module,exports){
 'use strict';
 
 
@@ -8010,7 +8233,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],24:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -8338,7 +8561,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],25:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 
 
@@ -9878,7 +10101,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":17,"./adler32":19,"./crc32":21,"./inffast":24,"./inftrees":26}],26:[function(require,module,exports){
+},{"../utils/common":18,"./adler32":20,"./crc32":22,"./inffast":25,"./inftrees":27}],27:[function(require,module,exports){
 'use strict';
 
 
@@ -10207,7 +10430,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":17}],27:[function(require,module,exports){
+},{"../utils/common":18}],28:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -10222,7 +10445,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],28:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 'use strict';
 
 
@@ -11426,7 +11649,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":17}],29:[function(require,module,exports){
+},{"../utils/common":18}],30:[function(require,module,exports){
 'use strict';
 
 

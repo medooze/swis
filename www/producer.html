@@ -128,7 +128,7 @@
 	};
 	
 	var wnd = window.open("viewer.html","viewer","width=400px");
-	var observer = new swis.Observer(transport);
+	var observer = new swis.Observer(transport,{chunk:200});
 	setTimeout(function(){
 		observer.observe(".cursor");
 	},2000);	

@@ -148,7 +148,7 @@
 	//Get mirror
 	var mirror = iframe.contentWindow.document;
 		
-	var reflector = new swis.Reflector(transport);
+	var reflector = new swis.Reflector(transport,{chunk:200});
 	
 	window.addEventListener("message", function(message){
 		//If first time
