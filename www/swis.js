@@ -4437,14 +4437,18 @@ Reflector.prototype.reflect = function(mirror)
 	}
 	
 	function releaseCSSChilds(id) {
-		//Get childs
-		var childs = csschilds[id];
-		//For each child
-		for (var i=0;i<childs.length;i++)
-			//Delete node
-			childs[i].remove();
-		//Delete from css list
-		delete(csschilds[id]);
+		//Check if found
+		if (csschilds.hasOwnProperty (id))
+		{
+			//Get childs
+			var childs = csschilds[id];
+			//For each child
+			for (var i=0;i<childs.length;i++)
+				//Delete node
+				childs[i].remove();
+			//Delete from css list
+			delete(csschilds[id]);
+		}
 	}
 
 	function releaseElement(element) {
@@ -4500,7 +4504,9 @@ Reflector.prototype.reflect = function(mirror)
 			//Set child list
 			csschilds[id] = [];
 			//To keep order we need to add the rules 
-			var remaining = null;
+			var remaining = "";
+			//No need to keep order yet
+			var keepOrder = false;
 			//We are removing items inside the loop
 			while(rules && rules.length && i<rules.length) 
 			{
@@ -4508,16 +4514,18 @@ Reflector.prototype.reflect = function(mirror)
 				if (rules[i].type===4)
 				{
 					//Check if we have css in the buffer
-					if (remaining && remaining.length)
+					if (remaining)
 					{
 						//Create new element
 						var el = mirror.createElement("style");
 						//Append html styles
-						el.innerHTML = html;
+						el.innerHTML = remaining;
 						//Append befor next one
 						parent.insertBefore(el,next);
 						//Append to childs
 						csschilds.push(el);
+						//Clean reamining
+						remaining = "";
 					}
 					
 					var html = "";
@@ -4550,7 +4558,7 @@ Reflector.prototype.reflect = function(mirror)
 					stylesheet.removeRule(i);
 					
 					//We need to keep order of following css rules
-					remaining = "";
+					keepOrder = true;
 					
 				} else {
 					
@@ -4558,8 +4566,8 @@ Reflector.prototype.reflect = function(mirror)
 					if (rules[i].type===1) 
 						//Replace pseudo classes
 						rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
-					//If we are accumulating
-					if (remaining)
+					//If we are accumulating because we need to keep order of css
+					if (keepOrder)
 					{
 						//Append HTML
 						remaining += rules[i].cssRules[j].cssText + "\n";
@@ -4572,7 +4580,7 @@ Reflector.prototype.reflect = function(mirror)
 				}
 			}
 			//Check if we have css in the buffer
-			if (remaining && remaining.length)
+			if (remaining)
 			{
 				//Create new element
 				var el = mirror.createElement("style");
