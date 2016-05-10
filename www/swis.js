@@ -4493,7 +4493,7 @@ Reflector.prototype.reflect = function(mirror)
 			var rules = stylesheet.cssRules;
 			var i = 0;
 			//Get css id
-			var id = map(stylesheet.ownerNode);
+			var id = map.get(stylesheet.ownerNode);
 			//Get parent node and next
 			var parent = stylesheet.ownerNode.parentNode;
 			var next = stylesheet.ownerNode.nextSibling;
@@ -4527,8 +4527,6 @@ Reflector.prototype.reflect = function(mirror)
 						html += rules[i].cssRules[j].cssText + "\n";
 					//Create new element
 					var el = mirror.createElement("style");
-					//Set media rule id
-					el.dataset["swis-media-rule-id"] = id;
 					//Set it to disabled when loaded
 					el.onload = function(){ el.disabled = true; };
 					//Append html styles
@@ -4547,7 +4545,7 @@ Reflector.prototype.reflect = function(mirror)
 					//request update
 					queries[mediaRuleId] = rules[i].media.mediaText;
 					//Set media rule id on element
-					el.dataset["swis-media-rule-id"] = id;
+					el.dataset["swisMediaRuleId"] = mediaRuleId;
 					//Remove the media rules
 					stylesheet.removeRule(i);
 					
@@ -4753,7 +4751,7 @@ Reflector.prototype.reflect = function(mirror)
 										//For each one
 										for (var i=0;i<childs.length;++i)
 											//Apply it
-											childs[i].disabled = childs[i].disabled
+											childs[i].disabled = value || mediaRules[childs[i].dataset["swisMediaRuleId"]].disabled;
 									}
 									break;
 								case MessageType.CharacterData:
@@ -4837,7 +4835,7 @@ Reflector.prototype.reflect = function(mirror)
 											//Enable/disable associated element
 											mediarules[id].element.disabled = !message.matches[id];
 										//Store value on media rule
-										mediarules[id] = !message.matches[id];
+										mediarules[id].disabled = !message.matches[id];
 									}
 									break;
 								//Resized
