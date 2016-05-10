@@ -4208,6 +4208,7 @@ function createElementFromHTML (html)
 		legend: [ 1, "<fieldset>", "</fieldset>" ],
 		area: [ 1, "<map>", "</map>" ],
 		param: [ 1, "<object>", "</object>" ],
+		tbody: [ 1, "<table>", "</table>" ],
 		thead: [ 1, "<table>", "</table>" ],
 		tr: [ 2, "<table><tbody>", "</tbody></table>" ],
 		col: [ 2, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
@@ -4449,6 +4450,7 @@ Reflector.prototype.reflect = function(mirror)
 			//Delete from css list
 			delete(csschilds[id]);
 		}
+		//TODO: Release media queries
 	}
 
 	function releaseElement(element) {
@@ -4498,11 +4500,16 @@ Reflector.prototype.reflect = function(mirror)
 			var i = 0;
 			//Get css id
 			var id = map.get(stylesheet.ownerNode);
+			//If we already processed this style
+			if (csschilds.hasOwnProperty (id))
+				//Skipt this one
+				continue;
 			//Get parent node and next
 			var parent = stylesheet.ownerNode.parentNode;
 			var next = stylesheet.ownerNode.nextSibling;
+			var childs = [];
 			//Set child list
-			csschilds[id] = [];
+			csschilds[id] = childs;
 			//To keep order we need to add the rules 
 			var remaining = "";
 			//No need to keep order yet
@@ -4523,7 +4530,7 @@ Reflector.prototype.reflect = function(mirror)
 						//Append befor next one
 						parent.insertBefore(el,next);
 						//Append to childs
-						csschilds.push(el);
+						childs.push(el);
 						//Clean reamining
 						remaining = "";
 					}
@@ -4536,11 +4543,15 @@ Reflector.prototype.reflect = function(mirror)
 					//Create new element
 					var el = mirror.createElement("style");
 					//Set it to disabled when loaded
-					el.onload = function(){ el.disabled = true; };
+					el.onload = function(){ 
+						this.disabled = true; 
+					};
 					//Append html styles
 					el.innerHTML = html;
 					//Append befor next one
 					parent.insertBefore(el,next);
+					//Append to childs
+					childs.push(el);
 					//Get id for this media rule
 					var mediaRuleId = maxMediaRuleId++;
 					//Append media query
@@ -4554,6 +4565,8 @@ Reflector.prototype.reflect = function(mirror)
 					queries[mediaRuleId] = rules[i].media.mediaText;
 					//Set media rule id on element
 					el.dataset["swisMediaRuleId"] = mediaRuleId;
+					el.dataset["swisMediaRuleText"] = rules[i].media.mediaText;
+					
 					//Remove the media rules
 					stylesheet.removeRule(i);
 					
@@ -4570,7 +4583,7 @@ Reflector.prototype.reflect = function(mirror)
 					if (keepOrder)
 					{
 						//Append HTML
-						remaining += rules[i].cssRules[j].cssText + "\n";
+						remaining += rules[i].cssText + "\n";
 						//Remove the media rules
 						stylesheet.removeRule(i);
 					} else {
@@ -4585,11 +4598,11 @@ Reflector.prototype.reflect = function(mirror)
 				//Create new element
 				var el = mirror.createElement("style");
 				//Append html styles
-				el.innerHTML = html;
+				el.innerHTML = remaining;
 				//Append befor next one
 				parent.insertBefore(el,next);
 				//Append to childs
-				csschilds.push(el);
+				childs.push(el);
 			}
 		}
 		//Send event
@@ -4684,6 +4697,7 @@ Reflector.prototype.reflect = function(mirror)
 			MessageParser.Parse(messages[n])
 				.then(function(parser)
 				{
+					var timer = null;
 					//List of deleted nodes
 					var deleted = {};
 					//For each message
@@ -4720,6 +4734,10 @@ Reflector.prototype.reflect = function(mirror)
 										deleted[message.deleted[i]] = true;
 										//Remove node
 										reverse[message.deleted[i]].remove();
+										//If changing a CSS style
+										if (target.nodeName === "STYLE")
+											//Clean childs
+											releaseCSSChilds(message.target);
 									}
 									//Added elements
 									for (var i=0;i<message.added.length;i++)
@@ -4768,6 +4786,18 @@ Reflector.prototype.reflect = function(mirror)
 									var target = reverse[message.target];
 									//Set data
 									target.data = message.text;
+									//If changing a CSS style
+									if (target.parentNode.nodeName === "STYLE")
+									{
+										//Get id of parent
+										var parentId = map.get(target.parentNode)
+										//Clean childs
+										releaseCSSChilds(parentId);
+										//If it is the first CSS on this run
+										if (!timer)
+											//Process styles on next run
+											timer = setTimeout(processStyles,0);
+									}
 									break;
 								//Hovered
 								case MessageType.MouseOver:
@@ -4818,8 +4848,10 @@ Reflector.prototype.reflect = function(mirror)
 									target.parentNode.replaceChild(style,target);
 									//Set the  new element in reverse
 									replace(message.target,style);
-									//Process styles on next run
-									setTimeout(processStyles,0);
+									//If it is the first CSS on this run
+									if (!timer)
+										//Process styles on next run
+										timer = setTimeout(processStyles,0);
 									//Reset
 									break;
 								//External css fallback
