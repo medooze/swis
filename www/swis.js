@@ -3653,8 +3653,17 @@ Observer.prototype.observe = function(exclude)
 	}
 	
 	function getExternalStyle(id,href){
-		//Get absolute path
-		var url = new URL(href,document.location.href).toString();
+		
+		//Get base absolute url
+		var absolute = document.location.href;
+		//Check if there is a BASE element in the document
+		var base = document.querySelector("base");
+		//If we have to rebase the absolue url
+		if (base)
+			//Get absolute path from BASE  href attributte
+			absolute = new URL(base.getAttribute("href"),absolute).toString();
+		//Get absolute path from document location
+		var url = new URL(href,absolute).toString();
 		//Request css async
 		var req = new XMLHttpRequest();
 		//Set handlers
@@ -3891,7 +3900,7 @@ Observer.prototype.observe = function(exclude)
 					break;
 				case "characterData":
 					//Mutaion message
-					queue(MessageType.Attributes,{
+					queue(MessageType.CharacterData,{
 						target	: target,
 						text	: mutation.target.data
 					});
@@ -4278,6 +4287,8 @@ function Reflector(transport,options)
 	//Map and reverse map
 	this.map = new WeakMap();
 	this.reverse = {};
+	//The CSS child references
+	this.csschilds = {};
 	//Media rules
 	this.mediarules = {};
 	//The message factory
@@ -4311,6 +4322,7 @@ Reflector.prototype.reflect = function(mirror)
 	var self = this;
 	var reverse = this.reverse;
 	var map = this.map;
+	var csschilds = this.csschilds;
 	var mediarules = this.mediarules;
 	var transport = this.transport;
 	
@@ -4423,12 +4435,25 @@ Reflector.prototype.reflect = function(mirror)
 				populate(element.childNodes[i]);
 		}
 	}
+	
+	function releaseCSSChilds(id) {
+		//Get childs
+		var childs = csschilds[id];
+		//For each child
+		for (var i=0;i<childs.length;i++)
+			//Delete node
+			childs[i].remove();
+		//Delete from css list
+		delete(csschilds[id]);
+	}
 
 	function releaseElement(element) {
 		//Get id
 		var id = map.get(element);
 		//Add element to reverse
 		delete(reverse[id]);
+		//Delete from css list
+		releaseCSSChilds(id);
 		//Delete from reverse map
 		map.delete(element);
 		//For each child node
@@ -4443,6 +4468,8 @@ Reflector.prototype.reflect = function(mirror)
 		var element = reverse[id];
 		//Add element to reverse
 		delete(reverse[id]);
+		//Delete from css list
+		releaseCSSChilds(id);
 		//Delete from reverse map
 		map.delete(element);
 		//For each child node
@@ -4465,46 +4492,98 @@ Reflector.prototype.reflect = function(mirror)
 			var stylesheet = stylesheets[x];
 			var rules = stylesheet.cssRules;
 			var i = 0;
-
+			//Get css id
+			var id = map(stylesheet.ownerNode);
+			//Get parent node and next
+			var parent = stylesheet.ownerNode.parentNode;
+			var next = stylesheet.ownerNode.nextSibling;
+			//Set child list
+			csschilds[id] = [];
+			//To keep order we need to add the rules 
+			var remaining = null;
 			//We are removing items inside the loop
 			while(rules && rules.length && i<rules.length) 
 			{
 				//Check if it is a media rule
 				if (rules[i].type===4)
 				{
+					//Check if we have css in the buffer
+					if (remaining && remaining.length)
+					{
+						//Create new element
+						var el = mirror.createElement("style");
+						//Append html styles
+						el.innerHTML = html;
+						//Append befor next one
+						parent.insertBefore(el,next);
+						//Append to childs
+						csschilds.push(el);
+					}
+					
 					var html = "";
 					//And append all the child styles
 					for (var j = 0;j<rules[i].cssRules.length; j++)
 						//Append HTML
-						html = rules[i].cssRules[j].cssText + "\n";
+						html += rules[i].cssRules[j].cssText + "\n";
 					//Create new element
 					var el = mirror.createElement("style");
+					//Set media rule id
+					el.dataset["swis-media-rule-id"] = id;
 					//Set it to disabled when loaded
 					el.onload = function(){ el.disabled = true; };
 					//Append html styles
 					el.innerHTML = html;
-					//Append to head (Do it async??)
-					mirror.querySelector("head").appendChild(el).disabled;
+					//Append befor next one
+					parent.insertBefore(el,next);
 					//Get id for this media rule
-					var id = maxMediaRuleId++;
+					var mediaRuleId = maxMediaRuleId++;
 					//Append media query
-					mediarules[id] = {
+					mediarules[mediaRuleId] = {
 						element: el,
+						parent : parent,
+						disabled : true,
 						media: rules[i].media.mediaText
 					};
 					//request update
-					queries[id] = rules[i].media.mediaText;
+					queries[mediaRuleId] = rules[i].media.mediaText;
+					//Set media rule id on element
+					el.dataset["swis-media-rule-id"] = id;
 					//Remove the media rules
 					stylesheet.removeRule(i);
-				} else if (rules[i].type===1) {
-					//Replace pseudo classes
-					rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
-					//Next
-					i++;
+					
+					//We need to keep order of following css rules
+					remaining = "";
+					
 				} else {
-					//Leave it as it is
-					i++;
+					
+					//Check if its a CSSRule
+					if (rules[i].type===1) 
+						//Replace pseudo classes
+						rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
+					//If we are accumulating
+					if (remaining)
+					{
+						//Append HTML
+						remaining += rules[i].cssRules[j].cssText + "\n";
+						//Remove the media rules
+						stylesheet.removeRule(i);
+					} else {
+						//Next
+						i++;
+					}
 				}
+			}
+			//Check if we have css in the buffer
+			if (remaining && remaining.length)
+			{
+				//Create new element
+				var el = mirror.createElement("style");
+				//Append html styles
+				el.innerHTML = html;
+				//Append befor next one
+				parent.insertBefore(el,next);
+				//Append to childs
+				csschilds.push(el);
 			}
 		}
 		//Send event
@@ -4666,6 +4745,16 @@ Reflector.prototype.reflect = function(mirror)
 									if (target === mirror.documentElement )
 										//Always show scrollbars
 										mirror.documentElement.style.overflow = "scroll";
+									//If we are disabling a css style
+									if (message.key === "disabled" && target.nodeName === "STYLE")
+									{
+										//Get childs (if any)
+										var childs = csschilds[message.target];
+										//For each one
+										for (var i=0;i<childs.length;++i)
+											//Apply it
+											childs[i].disabled = childs[i].disabled
+									}
 									break;
 								case MessageType.CharacterData:
 									//console.log("CharData",message);
@@ -4742,8 +4831,14 @@ Reflector.prototype.reflect = function(mirror)
 									//console.log("Queries match",message);
 									//For all changes
 									for (var id in message.matches)
-										//Enable/disable associated element
-										mediarules[id].element.disabled = !message.matches[id];
+									{
+										//Ensure that the original style element for the element is not disabled
+										if (!mediarules[id].parent.disabled)
+											//Enable/disable associated element
+											mediarules[id].element.disabled = !message.matches[id];
+										//Store value on media rule
+										mediarules[id] = !message.matches[id];
+									}
 									break;
 								//Resized
 								case MessageType.Resize:
@@ -4959,7 +5054,7 @@ SelectionHighlighter.prototype.redraw = function()
 	for (var i=0;i<rects.length;i++)
 	{
 		//Create new element
-		var high = document.createElement("div");
+		var high = this.document.createElement("div");
 		//Set absolute positioning
 		high.style["pointer-events"] = "none";
 		high.style["position"] = "absolute";
