@@ -3745,7 +3745,7 @@ Observer.prototype.observe = function(exclude)
 				var clonedchild = child.cloneNode(false);
 				//Remove all on* handlers
 				var j=0;
-				while(j<clonedchild.attributes.length)
+				while(clonedchild.attributes && j<clonedchild.attributes.length)
 				{
 					//Check name
 					if (clonedchild.attributes[j].name.indexOf("on")===0)
