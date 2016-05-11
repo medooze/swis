@@ -396,8 +396,8 @@ Canvas.prototype.createPath = function(color)
 Canvas.prototype.resize = function()
 {
 	// Lookup the size the browser is displaying the canvas.
-	var displayWidth  = this.document.documentElement.clientWidth;
-	var displayHeight = this.document.documentElement.clientHeight;
+	var displayWidth  = this.document.documentElement.scrollWidth;
+	var displayHeight = this.document.documentElement.scrollHeight;
 
 	// Check if the this.canvas is not the same size.
 	if (this.canvas.width!==displayWidth || this.canvas.height!==displayHeight) 
@@ -3743,10 +3743,26 @@ Observer.prototype.observe = function(exclude)
 			) {
 				//Clone child
 				var clonedchild = child.cloneNode(false);
-				//Remove HREF from anchors
+				//Remove all on* handlers
+				var j=0;
+				while(j<clonedchild.attributes.length)
+				{
+					//Check name
+					if (clonedchild.attributes[j].name.indexOf("on")===0)
+						//Remove it
+						clonedchild.removeAttribute(clonedchild.attributes[j].name);
+					else
+						//Next
+						j++;
+				}
+				//Specific for each node type
 				if (child.nodeName==="A")
-					//Remove href
+					//Remove HREF from anchors
 					clonedchild.removeAttribute("href");
+				//Remove HREF from anchors
+				else if (child.nodeName==="IFRAME")
+					//Remove src
+					clonedchild.removeAttribute("src");
 				else if (child.nodeName==="#text" && !child.textContent.length)
 					//HACK: Replace by a zero width space so the node is created on the mirror also
 					clonedchild.textContent = '\u200B';
@@ -5138,6 +5154,10 @@ function getSelectionClientRects(document,selection)
 	if (!selection || !selection.startContainer)
 		//Empty
 		return [];
+	//Get scroll
+	var scrollTop = document.documentElement.scrollTop || document.body.scrollTop;
+	var scrollLeft = document.documentElement.scrollLeft || document.body.scrollLeft;
+
 	//Create new range
 	var range = document.createRange();
 	//Set start and end
@@ -5157,12 +5177,26 @@ function getSelectionClientRects(document,selection)
 		if (started && node.nodeType===3) 
 		{
 			try {
-			var range = document.createRange();
-			//Set start and end
-			range.setStart(node, node === selection.startContainer ?  selection.startOffset : 0);
-			range.setEnd(node, node === selection.endContainer ? selection.endOffset : node.textContent.length);
-			//Get bounding rects
-			Array.prototype.push.apply(rects,range.getClientRects());
+				var range = document.createRange();
+				//Set start and end
+				range.setStart(node, node === selection.startContainer ?  selection.startOffset : 0);
+				range.setEnd(node, node === selection.endContainer ? selection.endOffset : node.textContent.length);
+				//Get bounding rects
+				var clientRects = range.getClientRects();
+				//Positiion is top-left relative to the top-left of the viewport, so increas scroll
+				for (var i=0;i<clientRects.length;++i)
+				{
+					//Get absolute pos
+					clientRects[i].top += scrollTop;
+					clientRects[i].left += scrollLeft;
+					//Append
+					rects.push({
+						top	: clientRects[i].top + scrollTop,
+						left	: clientRects[i].left + scrollLeft,
+						width	: clientRects[i].width,
+						height	:  clientRects[i].height,
+					});
+				}
 			} catch(e) {
 				debugger;
 			}
