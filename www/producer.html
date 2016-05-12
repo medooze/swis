@@ -59,8 +59,6 @@
 			background-color: green;
 		}
 	</style>
-
-	
 </head>
 <body>
  
@@ -115,6 +113,9 @@
 </html>
 <script src="swis.js"></script>
 <script>
+	//PUt incorrect tags on header
+	document.head.appendChild(document.createElement("img"));
+	
 	setTimeout (function () {
 		var nodes = document.getElementsByClassName ("mod");
 		for (var i=0;i<nodes.length;i++)
