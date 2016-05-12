@@ -3606,11 +3606,20 @@ Observer.prototype.observe = function(exclude)
 	var doctype = "";
 	var timer;
 	
+	//POstponed messasges
+	var postponed = [];
+	
 	function flush() {
 		//Clear timer (jic)
 		clearTimeout (timer);
 		//Dismiss
 		timer = null;
+		//Add postponed messages
+		for (var i=0;i<postponed.length;i++)
+			//Append them now
+			factory.appendMessage(postponed[i].type,postponed[i].message);
+		//Clean postposned
+		postponed = [];
 		//Ensure we have something to send
 		if (!factory.isEmpty())
 		{
@@ -3633,10 +3642,25 @@ Observer.prototype.observe = function(exclude)
 	function queue(type,message) {
 		//Add message to queue
 		factory.appendMessage(type,message);
+		//Add post queue
+		for (var i=0;i<postponed.length;i++)
+			//Append them now
+			factory.appendMessage(postponed[i].type,postponed[i].message);
+		//Clean postposned
+		postponed = [];
 		//If not already scheduled
 		if (!timer) 
 			//Flush in 20ms
 			timer = setTimeout(flush,20);
+	}
+	
+	//Do not enqueue changes now, do it after next one
+	function postpone(type,message) {
+		//Postpone message
+		postponed.push({
+			type: type,
+			message: message
+		});
 	}
 	
 	function getHTML(node) {
@@ -3676,11 +3700,14 @@ Observer.prototype.observe = function(exclude)
 			});
 		});
 		req.addEventListener("error", function(error){
-			//We have not been able to get the css, import it
-			queue(MessageType.Link,{
-				target	: id,
-				href	: url
-			});
+			//Errors may be launched while not finished processinng html, send on next tick
+			setTimeout(function(){
+				//We have not been able to get the css, import it
+				queue(MessageType.Link,{
+					target	: id,
+					href	: url
+				});
+			},0);
 		});
 		//Load css
 		req.open("GET", url);
@@ -3716,7 +3743,6 @@ Observer.prototype.observe = function(exclude)
 			//Push message to the queue
 			queue(MessageType.ChildList,message);
 		},0);
-		
 	}
 	
 	function clone(element,exclude){
@@ -3776,9 +3802,12 @@ Observer.prototype.observe = function(exclude)
 				cloned.removeAttribute("href");
 			//Remove HREF from anchors
 			else if (cloned.nodeName==="IFRAME")
+			{
 				//Remove src
 				cloned.removeAttribute("src");
-			else if (cloned.nodeName==="#text" && !cloned.textContent.length)
+				//And Remove srcdoc
+				cloned.removeAttribute("srcdoc");
+			} else if (cloned.nodeName==="#text" && !cloned.textContent.length)
 				//HACK: Replace by a zero width space so the node is created on the mirror also
 				cloned.textContent = '\u200B';
 			//Change BASE href
@@ -3786,6 +3815,7 @@ Observer.prototype.observe = function(exclude)
 				//Change href
 				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),document.location.href).toString());
 			//Previous text node
+			var existing = [];
 			var texts = [];
 			var first;
 			//For each child node
@@ -3793,6 +3823,29 @@ Observer.prototype.observe = function(exclude)
 			{
 				//get child
 				var child = element.childNodes[i];
+				
+				//Check if we had this child already
+				var childId = map.get(child);
+				
+				//If we have it
+				if (childId)
+				{
+					//Add to existing ones
+					existing.push[{
+						id: childId,
+						element: child
+					}];
+					//Send texts
+					if (texts.length) {
+						//Create them async
+						createTextNodesAsync(element,first,texts);
+						//Clean them
+						texts = [];
+						first = null;
+					}
+					//Skip this one
+					continue;
+				}
 				
 				//Check if child node is text and previous was a text node
 				if ( child.nodeName ==="#text")
@@ -3821,11 +3874,26 @@ Observer.prototype.observe = function(exclude)
 				if (clonedChild)
 					//Append to cloned element
 					cloned.appendChild(clonedChild);
+				
+				
 			}
 			//If there where pending text nodes	
 			 if (texts.length) 
 				//Create them async
 				createTextNodesAsync(element,first,texts);
+			//For all existing childs
+			//We process them now as we need the id of the next sibling
+			for (var j=0;j<existing.length;j++)
+			{
+				//Push message to the queue after next queue
+				postpone(MessageType.ChildList,{
+					target		: id,
+					previous	: map.get(existing[j].element.previousSibling),
+					next		: map.get(existing[j].element.nextSibling),
+					added		: [existing[j].id],
+					deleted		: []
+				});
+			}
 		}
 		
 		//TODO: remove!!
@@ -3897,7 +3965,7 @@ Observer.prototype.observe = function(exclude)
 			switch(mutation.type)
 			{
 				case "childList":
-
+					console.log(mutation);
 					//Mutation message
 					var message = {
 						target		: target,
@@ -4509,7 +4577,7 @@ Reflector.prototype.reflect = function(mirror)
 		//For each child node
 		for (var i=0;i<element.childNodes.length;++i)
 		{
-			if (element.childNodes[i].dataset) element.childNodes[i].dataset["swisId"] =maxId;
+			if (element.childNodes[i].dataset) element.childNodes[i].dataset["swisReflectorId"] =maxId;
 
 			//Ignore doctype
 			if (element.childNodes[i].nodeType!==10)
@@ -4801,7 +4869,7 @@ Reflector.prototype.reflect = function(mirror)
 									init(message.href,message.html);
 									break;
 								case MessageType.ChildList:
-									//console.log("ChildList",message);
+									console.log("ChildList",message);
 									//Get target
 									var target = reverse[message.target];
 									//Get previous
