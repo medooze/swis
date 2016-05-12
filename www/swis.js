@@ -3694,89 +3694,91 @@ Observer.prototype.observe = function(exclude)
 		return false;
 	}
 	
-	function clone(element,cloned,exclude){
+	function clone(element,exclude){
+		
+		//Ifgnore doctype
+		if (element.nodeType===10) 
+		{
+			//Store doc type
+			doctype = "<!DOCTYPE html>";
+			//Ignore
+			return null;
+		}
+		
+		//Exclude selectors, canvas and highlighter elements
+		if ((exclude && matches(element,exclude))
+			|| (self.canvas && self.canvas.contains(element))
+			|| (self.highlighter && self.highlighter.contains(element))
+		)
+			//Ignore
+			return null;
+			
 		//Gen new id
 		var id = maxId++;
 		//Add element to maps
 		map.set(element,id);
 		reverse[id] = element;
-		//For each child node
-		for (var i=0;i<element.childNodes.length;++i)
+		
+		var cloned;
+		
+		//Replace scripts
+		if (element.nodeName==="SCRIPT")
 		{
-			//Get child
-			var child = element.childNodes[i];
-			//Replace scripts
-			if (child.nodeName==="SCRIPT")
-			{
-				//Create empty script
-				var clonedchild = document.createElement("script");
-				//Append to cloned element
-				cloned.appendChild(clonedchild);
-				//Gen new id
-				var childId = maxId++;
-				//Add element to map
-				map.set(child,childId);
-				reverse[childId] = child;
-			//Emmbed css
-			} else if (child.nodeName==="LINK" && (child.getAttribute("rel") || "").toLowerCase()==="stylesheet") {
-				//Clone child
-				var clonedchild = child.cloneNode(false);
-				//Remove href 
-				clonedchild.removeAttribute("href");
-				//Append to cloned element
-				cloned.appendChild(clonedchild);
-				//Gen new id
-				var childId = maxId++;
-				//Add element to map
-				map.set(child,childId);
-				reverse[childId] = child;
-				//Get external css
-				getExternalStyle(childId,child.getAttribute("href"));
-			//Ignore DOCTYPE
-			} else if (child.nodeType===10) {
-				//Ignore
-				doctype = "<!DOCTYPE html>";
-			//Exclude selectors
-			} else if (!(exclude && matches(child,exclude))
-				&& !(self.canvas && self.canvas.contains(child))
-				&& !(self.highlighter && self.highlighter.contains(child))
-			) {
-				//Clone child
-				var clonedchild = child.cloneNode(false);
-				//Remove all on* handlers
-				var j=0;
-				while(clonedchild.attributes && j<clonedchild.attributes.length)
-				{
-					//Check name
-					if (clonedchild.attributes[j].name.indexOf("on")===0)
-						//Remove it
-						clonedchild.removeAttribute(clonedchild.attributes[j].name);
-					else
-						//Next
-						j++;
-				}
-				//Specific for each node type
-				if (child.nodeName==="A")
-					//Remove HREF from anchors
-					clonedchild.removeAttribute("href");
+			//Create empty script
+			cloned = document.createElement("script");
+		//Emmbed css
+		} else if (element.nodeName==="LINK" && (element.getAttribute("rel") || "").toLowerCase()==="stylesheet") {
+			//Clone element
+			cloned = element.cloneNode(false);
+			//Remove href 
+			cloned.removeAttribute("href");
+			//Get external css
+			getExternalStyle(id,element.getAttribute("href"));
+		} else {
+			//Clone 
+			cloned = element.cloneNode(false);
+			
+			//Specific for each node type
+			if (cloned.nodeName==="A")
 				//Remove HREF from anchors
-				else if (child.nodeName==="IFRAME")
-					//Remove src
-					clonedchild.removeAttribute("src");
-				else if (child.nodeName==="#text" && !child.textContent.length)
-					//HACK: Replace by a zero width space so the node is created on the mirror also
-					clonedchild.textContent = '\u200B';
-				//Change BASE href
-				else if (child.nodeName==="BASE")
-					//Change href
-					clonedchild.setAttribute("href", new URL(child.getAttribute("href"),document.location.href).toString());
-				//TODO: remove!!
-				if (child.dataset) child.dataset["swisId"] = maxId;
-				//Append to cloned element
-				cloned.appendChild(clonedchild);
-				//Clone child recursivelly
-				clone(child,clonedchild,exclude);
+				cloned.removeAttribute("href");
+			//Remove HREF from anchors
+			else if (cloned.nodeName==="IFRAME")
+				//Remove src
+				cloned.removeAttribute("src");
+			else if (cloned.nodeName==="#text" && !cloned.textContent.length)
+				//HACK: Replace by a zero width space so the node is created on the mirror also
+				cloned.textContent = '\u200B';
+			//Change BASE href
+			else if (cloned.nodeName==="BASE")
+				//Change href
+				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),document.location.href).toString());
+			//TODO: remove!!
+			if (cloned.dataset) cloned.dataset["swisId"] = maxId;
+			
+			//For each child node
+			for (var i=0;i<element.childNodes.length;++i)
+			{
+				//Clone child
+				var clonedChild = clone(element.childNodes[i],exclude);
+				//If we have to handle
+				if (clonedChild)
+					//Append to cloned element
+					cloned.appendChild(clonedChild);
 			}
+		}
+		
+		//Remove all on* handlers
+		var j=0;
+		while(cloned.attributes && j<cloned.attributes.length)
+		{
+			//Check name
+			if (cloned.attributes[j].name.indexOf("on")===0)
+				//Remove it
+				cloned.removeAttribute(cloned.attributes[j].name);
+			else
+				//Next
+				j++;
 		}
 		
 		//Return new promose
@@ -3784,7 +3786,7 @@ Observer.prototype.observe = function(exclude)
 	}
 	
 	//Clone DOM
-	var cloned = clone(document,document.cloneNode(0),exclude);
+	var cloned = clone(document,exclude);
 	
 	//Check if there is a BASE element in the document
 	if (!cloned.querySelector("base"))
@@ -3861,7 +3863,7 @@ Observer.prototype.observe = function(exclude)
 								//Skip this
 								continue;
 							//Clone DOM element and add ids
-							var cloned = clone(child,child.cloneNode(false),exclude);
+							var cloned = clone(child,exclude);
 							//Put element
 							message.added.push(getHTML(cloned));
 						} else {
