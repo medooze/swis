@@ -116,6 +116,10 @@
 	//PUt incorrect tags on header
 	document.head.appendChild(document.createElement("img"));
 	
+	document.body.insertBefore(document.createTextNode("third"),document.body.children[0]);
+	document.body.insertBefore(document.createTextNode("second"),document.body.children[0]);
+	document.body.insertBefore(document.createTextNode("first"),document.body.children[0]);
+	
 	setTimeout (function () {
 		var nodes = document.getElementsByClassName ("mod");
 		for (var i=0;i<nodes.length;i++)
