@@ -102,8 +102,15 @@
 				</div>
 			</div>
 		</div>
+		<form>
 		<textarea></textarea>
 		<select ><option>a <option>b</select>
+		<input type="text">
+		<input type="checkbox"> check
+		<input type="radio" name="a" value="1"> radio1
+		<input type="radio" name="a" value="2"> radio2
+		<button type="submit">NOOOO</button>
+		</form>
 		<div>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent a sagittis risus, quis blandit augue. Proin id ullamcorper magna. Pellentesque dignissim sem ut ipsum egestas, et tempus eros tempus. Nullam eu maximus purus. Proin scelerisque sit amet sapien vel viverra. Cras bibendum non sapien ut rhoncus. Quisque viverra justo in augue pulvinar vestibulum. Proin dignissim ultrices orci, finibus faucibus tellus ullamcorper id. Ut lacinia mi odio, sed luctus dolor posuere eget.</div>
 
 		<div>Morbi faucibus rhoncus leo in fringilla. Maecenas eu metus libero. Pellentesque nec elit ipsum. Nam ac leo odio. Sed sit amet faucibus mauris, dignissim posuere turpis. Donec cursus feugiat erat, sed maximus metus mattis sed. Aenean ut mauris nec urna blandit venenatis. Duis pulvinar eros vel enim rhoncus elementum. Suspendisse faucibus sem vel facilisis hendrerit. Nam fringilla ac est vel mollis. Quisque volutpat finibus elit quis molestie. Aliquam erat volutpat. Mauris ornare ex orci, vel sagittis ipsum pellentesque a.</div>
@@ -124,6 +131,7 @@
 	document.body.insertBefore(document.createTextNode("second"),document.body.children[0]);
 	document.body.insertBefore(document.createTextNode("first"),document.body.children[0]);
 	
+	document.querySelector("input[type='text']").value = "initial value via js";
 	setTimeout (function () {
 		var nodes = document.getElementsByClassName ("mod");
 		for (var i=0;i<nodes.length;i++)

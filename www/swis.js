@@ -3096,6 +3096,12 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			bytebuffer.writeVarint32(message.target);
 			bytebuffer.writeVString(message.value|| "");
 			break;
+		case MessageType.Checked:
+			// target: map.get(e.srcElement),
+			// value: e.srcElement.checked
+			bytebuffer.writeVarint32(message.target);
+			bytebuffer.writeByte(message.value ? 1 : 0);
+			break;
 		case MessageType.Resize:
 			// width: window.innerWidth,
 			// height: window.innerHeight
@@ -3411,6 +3417,12 @@ MessageParser.prototype.next = function()
 			// value: e.srcElement.value
 			message.target	= bytebuffer.readVarint32();
 			message.value	= bytebuffer.readVString();
+			break;
+		case MessageType.Checked:
+			// target: map.get(e.srcElement),
+			// value: e.srcElement.checked
+			message.target	= bytebuffer.readVarint32();
+			message.value	= bytebuffer.readByte();
 			break;
 		case MessageType.Resize:
 			// width: window.innerWidth,
@@ -3763,6 +3775,7 @@ module.exports = [
 	"Focus",
 	"Blur",
 	"Input",
+	"Checked",
 	"Resize",
 	"Base",
 	"CSS",
@@ -4034,6 +4047,9 @@ Observer.prototype.observe = function(exclude)
 			else if (cloned.nodeName==="BASE")
 				//Change href
 				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),document.location.href).toString());
+			else if (cloned.nodeName==="INPUT")
+				//Remove autocomplete
+				cloned.setAttribute("autocomplete","off");
 			//Previous text node
 			var existing = [];
 			var texts = [];
@@ -4351,6 +4367,63 @@ Observer.prototype.observe = function(exclude)
 		});
 	}),true);
 	
+	document.addEventListener("change", (this.onchange = function(e){
+		//Get id
+		var id = map.get(e.target);
+		//If not tracked
+		if (!id)
+			//Ignore
+			return;
+		
+		//Check if it is a radio or a checkbox
+		if (e.target.type==="checkbox" || e.target.type==="radio")
+			//Check if we have been checked
+			queue(MessageType.Checked,{
+				target: id,
+				value: e.target.checked
+			});
+		else
+			//Check if we have changed
+			queue(MessageType.Input,{
+				target: id,
+				value: e.target.value
+			});
+	}),true);
+	
+	//Get all inputs
+	var inputs = document.querySelectorAll("input");
+	
+	//Foe ach one
+	for (var i=0;i<inputs.length;++i)
+	{
+		//Get id
+		var id = map.get(inputs[i]);
+		//If not tracked
+		if (!id)
+			//Ignore
+			continue;
+		
+		//Check if it is a radio or a checkbox
+		if (inputs[i].type==="checkbox" || inputs[i].type==="radio")
+		{
+			//If it has any value
+			if (inputs[i].checked)
+				//Check if we have been checked
+				queue(MessageType.Checked,{
+					target: id,
+					value: inputs[i].checked
+				});
+		} else {
+			//If it has any value
+			if (inputs[i].value)
+				//Check if we have changed
+				queue(MessageType.Input,{
+					target: id,
+					value: inputs[i].value
+				});
+		}
+	}
+
 	document.addEventListener("selectionchange", (this.onselectionchange = function(e) {
 		//Get selection
 		var selection = document.getSelection();
@@ -4549,6 +4622,7 @@ Observer.prototype.stop = function()
 	document.removeEventListener("focus", this.onfocus, true);
 	document.removeEventListener("blur", this.onblur, true);
 	document.removeEventListener("input", this.oninput, true);
+	document.removeEventListener("change", this.onchange, true);
 	document.removeEventListener("selectionchange", this.onselectionchange, true);
 	window.removeEventListener("resize", this.onresize , true);
 	
@@ -5046,6 +5120,15 @@ Reflector.prototype.reflect = function(mirror)
 				endOffset: range ? range.endOffset : 0
 			});
 		}), true);
+		
+		//Listen selection evetns
+		mirror.addEventListener("submit", (this.onsubmit = function(e) {
+			//Stop submission
+			e.preventDefault();
+			//Exit
+			return false;
+		}), true);
+		
 		//Create painting canvas
 		self.canvas = new Canvas(mirror);
 		//Create highlighter
@@ -5221,6 +5304,14 @@ Reflector.prototype.reflect = function(mirror)
 									var target = reverse[message.target];
 									//Set value
 									target.value = message.value;
+									break;
+								//checked
+								case MessageType.Checked:
+									//console.log("Input",message);
+									//Get target
+									var target = reverse[message.target];
+									//Set checked value
+									target.checked = message.value;
 									break;
 								//Set exteranl CSS
 								case MessageType.CSS:
@@ -5464,6 +5555,7 @@ Reflector.prototype.stop = function()
 	//Remove listener
 	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
 	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);
+	this.mirror.removeEventListener("submit",this.onsubmit,true);
 	this.mirror.defaultView.removeEventListener("rsize",this.onresize,true);
 	
 };
