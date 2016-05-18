@@ -4051,10 +4051,10 @@ Observer.prototype.observe = function(exclude)
 				if (childId)
 				{
 					//Add to existing ones
-					existing.push[{
+					existing.push({
 						id: childId,
 						element: child
-					}];
+					});
 					//Send texts
 					if (texts.length) {
 						//Create them async
@@ -4094,9 +4094,8 @@ Observer.prototype.observe = function(exclude)
 				if (clonedChild)
 					//Append to cloned element
 					cloned.appendChild(clonedChild);
-				
-				
 			}
+			
 			//If there where pending text nodes	
 			 if (texts.length) 
 				//Create them async
@@ -4125,14 +4124,14 @@ Observer.prototype.observe = function(exclude)
 		{
 			//Check name
 			if (cloned.attributes[j].name.indexOf("on")===0)
-				//Remove it
+				//Remove event handler
 				cloned.removeAttribute(cloned.attributes[j].name);
 			else
-				//Next
+				//Next child
 				j++;
 		}
 		
-		//Return new promose
+		//Return cloned element
 		return cloned;
 	}
 	
@@ -4212,6 +4211,10 @@ Observer.prototype.observe = function(exclude)
 								|| self.highlighter.contains(child)
 							)
 								//Skip this
+								continue;
+							//Ensure it has not been removed later
+							if (!child.parentNode)
+								//Do not add it
 								continue;
 							//Clone DOM element and add ids
 							var cloned = clone(child,exclude);
@@ -4632,14 +4635,21 @@ function resolveCSSURLs(css,base)
 		ini = i;
 		//Get end
 		var j = lower.indexOf(")",ini);
+		//Get all content
+		var raw = css.substring(i,j);
 		//Get url
-		var url = css.substring(i,j).trim();
+		var url = raw.trim();
 		//Remove start and end "'
 		if (url.charAt(0)==='\'' || url.charAt(0)==='"')
 			//remove both ends
 			url = url.substring(1,url.length-1).trim();
-		//Create new url
-		output += new URL(url,base);
+		//Check if it is a data: url
+		if (url.indexOf("data:")!==0)
+			//Create new url
+			output += new URL(url,base);
+		else
+			//Do not process it
+			output += raw;
 		//Append end of url
 		output += ")";
 		//Move end
