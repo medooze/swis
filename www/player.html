@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>SWIS player</title>
+</head>
+
+<body>
+
+	<input type="file" name="recording" accept=".dat"/>
+	<button name="play" value="Play" disabled>Play</button> 
+	<button name="next" value="Next" disabled>Next</button>
+	
+</html>
+<script src="swis.js"></script>
+<script>
+	var remoteCursor;
+	var transport = {
+		send : function(data) {
+		}
+	};
+	//Create iframe	
+	var iframe = document.createElement("iframe");
+	iframe.style.border = "0px";
+	//Append it 
+	document.documentElement.appendChild(iframe);
+	//Get mirror
+	var mirror = iframe.contentWindow.document;
+		
+	var reflector = new swis.Reflector(transport);
+	
+	//Create iframe	
+	reflector.on("init",function(e) {
+	});
+
+	reflector.on("remotecursormove",function(data){
+		//Check if first cursor
+		if (!remoteCursor)
+		{
+			//Create new element
+			remoteCursor = mirror.createElement("div");
+			//Set absolute positioning
+			remoteCursor.style["pointer-events"] = "none";
+			remoteCursor.style["position"] = "absolute";
+			remoteCursor.style["width"] = "150px";
+			remoteCursor.style["height"] = "25px";
+			remoteCursor.style["border"] = "1px black solid";
+			remoteCursor.style["background-color"] = "green";
+			remoteCursor.style["color"] = "white";
+			remoteCursor.style["margin"] = "0px";
+			remoteCursor.style["padding"] = "0px";
+			remoteCursor.style["z-index"] = "99999999999999999999999999";
+			//Set text
+			remoteCursor.innerHTML = "^Remote Cursor";
+			//Insert into
+			mirror.documentElement.appendChild(remoteCursor);
+		}
+		//Set new position
+		remoteCursor.style["left"] = data.x + "px";
+		remoteCursor.style["top"] =  data.y + "px";
+	});
+	
+	var first = true;
+	reflector.on("resize",function(data){
+		//If it is first time
+		if (first)
+		{
+			//Set it once first
+			iframe.width = data.width;
+			iframe.height = data.height;
+			first = false;
+		} 
+			
+		iframe.width = data.width + (iframe.width -iframe.contentWindow.document.documentElement.clientWidth);
+		iframe.height = data.height; + (iframe.height -iframe.contentWindow.document.documentElement.clientheight);
+	});
+	//Get elements
+	var recording	= document.querySelector("input[name='recording']");
+	var play	= document.querySelector("button[name='play']");
+	var next	= document.querySelector("button[name='next']");
+	
+	var player = new swis.Player();
+	
+	player.on("message",function(message){
+		transport.onmessage(message);
+	});
+	
+	//Drawing/not drawing
+	recording.addEventListener("change",function(e){
+		play.disabled = false;
+	});
+	
+	//Drawing/not drawing
+	play.addEventListener("click",function(e){
+		play.disabled = true;
+		next.disabled = false;
+		player.load(recording.files[0]);
+		player.once("load",function(){
+			reflector.reflect(mirror);
+			player.play();
+		});
+	});
+	
+	
+	next.addEventListener("click",function(e){
+		//Next
+		player.pause();
+		player.next();
+	});
+</script>
