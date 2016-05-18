@@ -305,6 +305,7 @@ function isUndefined(arg) {
 module.exports = {
 	Observer : require("./lib/observer.js"),
 	Reflector: require("./lib/reflector.js"),
+	Player: require("./lib/message/player.js"),
 	MessageType: require("./lib/message/type.js"),
 	MessageFactory: require("./lib/message/factory.js"),
 	MessageParser: require("./lib/message/parser.js"),
@@ -312,7 +313,7 @@ module.exports = {
 	Utils: require("./lib/utils.js"),
 	Canvas: require("./lib/canvas.js")
 };
-},{"./lib/canvas.js":3,"./lib/message/aggregator.js":4,"./lib/message/factory.js":6,"./lib/message/parser.js":7,"./lib/message/type.js":8,"./lib/observer.js":10,"./lib/reflector.js":11,"./lib/utils.js":13}],3:[function(require,module,exports){
+},{"./lib/canvas.js":3,"./lib/message/aggregator.js":4,"./lib/message/factory.js":6,"./lib/message/parser.js":7,"./lib/message/player.js":8,"./lib/message/type.js":10,"./lib/observer.js":12,"./lib/reflector.js":13,"./lib/utils.js":15}],3:[function(require,module,exports){
 
 function Path(canvas,color)
 {
@@ -3305,7 +3306,7 @@ MessageFactory.prototype.flush = function(useBlob,chunked)
 
 module.exports =  MessageFactory;
 
-},{"./bytebuffer.js":5,"./type.js":8,"pako":15}],7:[function(require,module,exports){
+},{"./bytebuffer.js":5,"./type.js":10,"pako":17}],7:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3520,7 +3521,226 @@ MessageParser.Parse = function(data)
 };
 
 module.exports = MessageParser;
-},{"./bytebuffer.js":5,"./type.js":8,"pako":15}],8:[function(require,module,exports){
+},{"./bytebuffer.js":5,"./type.js":10,"pako":17}],8:[function(require,module,exports){
+var ByteBuffer = require("./bytebuffer.js");
+
+var EventEmitter = require('events').EventEmitter;
+var inherits = require('inherits');
+
+function MessagePlayer()
+{
+	//Make us an event emitter
+	EventEmitter.call(this);
+}
+
+//Inherit from event emitter
+inherits(MessagePlayer, EventEmitter);
+
+
+MessagePlayer.prototype.load = function(file)
+{
+	var self = this;
+	 // Initialize a new instance of the FileReader class.
+	var reader = new FileReader();
+	// Called when the read operation is successfully completed.
+	reader.onload = function () {
+		//Create a byte buffer
+		self.bytebuffer = new ByteBuffer(0);
+		//Reuse the one that we have been passed
+		self.bytebuffer.buffer = this.result;
+		self.bytebuffer.view = new Uint8Array(this.result);
+		self.bytebuffer.limit = self.bytebuffer.buffer.byteLength;
+		//Message offset
+		self.offset = 0;
+		//Error
+		self.emit("load");
+	};
+	// On error
+	reader.onerror = function(error){
+		//Error
+		self.emit("load:error",error);
+	};
+	// Starts reading the contents of the specified blob.
+	reader.readAsArrayBuffer(file);
+};
+
+MessagePlayer.prototype.next = function()
+{
+	//Read the ts offset and message size
+	var ts	 = this.bytebuffer.readVarint32();
+	var size = this.bytebuffer.readVarint32();
+	
+	//Skip header 
+	var pos = ByteBuffer.calculateVarint32(ts) + ByteBuffer.calculateVarint32(size);
+	
+	//Create new view
+	var view = new Uint8Array(this.bytebuffer.buffer,this.bytebuffer.offset,size);
+	
+	//Create newmessage
+	var data = new ArrayBuffer(size);
+	var view = new Uint8Array(data);
+	
+	//Copy
+	view.set(new Uint8Array(this.bytebuffer.buffer,this.bytebuffer.offset,size));
+		
+	//Skip size
+	this.bytebuffer.skip(size);
+	
+	//Return it
+	return {
+		ts: ts,
+		size: size,
+		data: data
+	};
+};
+
+MessagePlayer.prototype.nextTick = function()
+{
+	//Check if we have endend
+	if (!this.bytebuffer.remaining())
+		//Error
+		return -1;
+	//mark position
+	this.bytebuffer.mark();
+	
+	//Read the ts offset and message size
+	var ts = this.bytebuffer.readVarint32();
+	
+	//Go to marked position
+	this.bytebuffer.reset();
+	
+	//Return timestamp
+	return ts;
+};
+
+
+MessagePlayer.prototype.play = function()
+{
+	var self = this;
+	//Calculate initial time
+	self.ini = new Date().getTime();
+	//Get next relative offset
+	var next = this.nextTick();
+	
+	//If ended
+	if (next<0)
+	{
+		//Emit event
+		this.emit("ended");
+		//Exit
+		return;
+	}
+	
+	var tick = function()
+	{
+		//Get time offset
+		var now = new Date().getTime()-self.ini;
+		
+		//Process all pending changes
+		while(next<now) 
+		{
+			//Get next message
+			var message = self.next();
+			//Emit
+			self.emit("message",message);
+			
+			//Get next tick ime
+			next = self.nextTick();
+			
+			//If ended
+			if (next<0)
+			{
+				//Emit event
+				self.emit("ended");
+				//Exit
+				return;
+			}
+		}
+		
+		//Run again
+		self.timer = window.requestAnimationFrame(tick);
+	};
+	
+	//Start
+	tick();
+};
+
+MessagePlayer.prototype.pause = function()
+{
+	//Cancel next timer
+	window.cancelAnimationFrame(this.timer);
+};
+
+
+MessagePlayer.prototype.stop = function()
+{
+	//Cancel next timer
+	window.cancelAnimationFrame(this.timer);
+	//Free buffer
+	this.bytebuffer = null;
+};
+
+
+module.exports = MessagePlayer;
+
+
+
+},{"./bytebuffer.js":5,"events":1,"inherits":16}],9:[function(require,module,exports){
+var ByteBuffer = require("./bytebuffer.js");
+
+
+function MessageRecorder()
+{
+	this.ini;
+	this.parts = [];
+}
+
+
+MessageRecorder.prototype.push = function(messages)
+{
+	var timestamp = 0;
+	//If first
+	if (!this.ini)
+		//Get now
+		this.ini = new Date().getTime();
+	else
+		//Get difference
+		timestamp = new Date().getTime()-this.ini;
+	
+	//For each message
+	for (var i=0;i<messages.length;++i)
+	{
+		//Get the size of he message
+		var length = messages[i].byteLength || messages[i].size;
+		//Create header
+		var header = new ByteBuffer(4+ByteBuffer.calculateVarint32(length));
+		//Writ the timestamp
+		header.writeVarint32(timestamp);
+		//Set the message size
+		header.writeVarint32(length);
+		//End it
+		header.flip();
+		//Append header
+		this.parts.push(header.toArrayBuffer(true));
+		console.log("record: "+timestamp +" "+length);
+		//Apend message
+		this.parts.push(messages[i]);
+	}
+};
+
+MessageRecorder.prototype.toBlob = function()
+{
+	//Crete new blob
+	return new Blob(this.parts);
+};
+
+MessageRecorder.prototype.close = function()
+{
+	this.parts = [];
+};
+
+module.exports = MessageRecorder;
+},{"./bytebuffer.js":5}],10:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -3531,7 +3751,7 @@ for (var i = 0; i<Types.length; ++i)
 	Type[Types[i]] = i;
 
 module.exports = Type;
-},{"./types.js":9}],9:[function(require,module,exports){
+},{"./types.js":11}],11:[function(require,module,exports){
 // Observer -> Reflector messages
 module.exports = [
 	"HTML",
@@ -3553,7 +3773,7 @@ module.exports = [
 	"Paint",
 	"Clear"
 ];
-},{}],10:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
@@ -4336,11 +4556,13 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/type.js":8,"./selectionhighlighter.js":12,"./utils.js":13,"events":1,"inherits":14}],11:[function(require,module,exports){
+},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/type.js":10,"./selectionhighlighter.js":14,"./utils.js":15,"events":1,"inherits":16}],13:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
 var MessageChunkAggregator = require("./message/aggregator.js");
+var MessageRecorder = require("./message/recorder.js");
+
 var Canvas = require("./canvas.js");
 var SelectionHighlighter = require("./selectionhighlighter.js")
 
@@ -4446,7 +4668,8 @@ function Reflector(transport,options)
 	//Set defaults
 	this.options = Object.assign({
 		blob: true,
-		chunk: false
+		chunk: false,
+		recording: false
 	},options);
 	//Are we using chunked transport?
 	if (this.options.chunk)
@@ -4456,6 +4679,10 @@ function Reflector(transport,options)
 		//If we are used a chunked transport, create dechunker
 		this.aggregator = new MessageChunkAggregator();
 	}
+	//If we are recording
+	if (this.options.recording)
+		//Create recorder
+		this.recorder = new MessageRecorder();
 	//Make us an event emitter
 	EventEmitter.call(this);
 }
@@ -4839,6 +5066,11 @@ Reflector.prototype.reflect = function(mirror)
 			//ONly one
 			messages = [blob];
 		
+		//If we are recording
+		if (self.recorder)
+			//Append to parts
+			self.recorder.push(messages);
+		
 		//For each group of messages
 		for (var n=0;n<messages.length;n++)
 		{
@@ -5178,8 +5410,36 @@ Reflector.prototype.paint = function(flag)
 	
 };
 
+Reflector.prototype.download = function()
+{
+	//If not recording
+	if (!this.recorder)
+		//Exit
+		return;
+	//Create new blob from parts
+	var blob = this.recorder.toBlob();;
+	//Creata url
+	var url = window.URL.createObjectURL(blob);
+	//Create element for download
+	var a = document.createElement("a");
+	//Set values for download
+	a.style = "display: none";
+        a.href = url;
+        a.download = "swis-recording-" + new Date().toISOString() +".dat";
+	//Add anchor to document
+	document.body.appendChild(a);
+	//Start download
+        a.click();
+	//Remove element
+	a.remove();
+	//revoke url for blob
+	window.URL.revokeObjectURL(url);
+};
+
 Reflector.prototype.stop = function()
 {
+	//Free recording
+	this.recorder  && this.recorder.close();
 	//Stop painting
 	this.paint(false);
 	//Stop canvas
@@ -5199,7 +5459,7 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/type.js":8,"./selectionhighlighter.js":12,"events":1,"inherits":14}],12:[function(require,module,exports){
+},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/recorder.js":9,"./message/type.js":10,"./selectionhighlighter.js":14,"events":1,"inherits":16}],14:[function(require,module,exports){
 var Utils = require("./utils.js");
 
 function SelectionHighlighter(document)
@@ -5280,7 +5540,7 @@ SelectionHighlighter.prototype.close = function()
 };
 
 module.exports = SelectionHighlighter;
-},{"./utils.js":13}],13:[function(require,module,exports){
+},{"./utils.js":15}],15:[function(require,module,exports){
 function getSelectionClientRects(document,selection)
 {
 	//Check
@@ -5358,7 +5618,7 @@ function getSelectionClientRects(document,selection)
 module.exports = {
 	getSelectionClientRects: getSelectionClientRects
 }
-},{}],14:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -5383,7 +5643,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],15:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -5399,7 +5659,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":16,"./lib/inflate":17,"./lib/utils/common":18,"./lib/zlib/constants":21}],16:[function(require,module,exports){
+},{"./lib/deflate":18,"./lib/inflate":19,"./lib/utils/common":20,"./lib/zlib/constants":23}],18:[function(require,module,exports){
 'use strict';
 
 
@@ -5801,7 +6061,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":18,"./utils/strings":19,"./zlib/deflate":23,"./zlib/messages":28,"./zlib/zstream":30}],17:[function(require,module,exports){
+},{"./utils/common":20,"./utils/strings":21,"./zlib/deflate":25,"./zlib/messages":30,"./zlib/zstream":32}],19:[function(require,module,exports){
 'use strict';
 
 
@@ -6221,7 +6481,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":18,"./utils/strings":19,"./zlib/constants":21,"./zlib/gzheader":24,"./zlib/inflate":26,"./zlib/messages":28,"./zlib/zstream":30}],18:[function(require,module,exports){
+},{"./utils/common":20,"./utils/strings":21,"./zlib/constants":23,"./zlib/gzheader":26,"./zlib/inflate":28,"./zlib/messages":30,"./zlib/zstream":32}],20:[function(require,module,exports){
 'use strict';
 
 
@@ -6325,7 +6585,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],19:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -6512,7 +6772,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":18}],20:[function(require,module,exports){
+},{"./common":20}],22:[function(require,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -6546,7 +6806,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],21:[function(require,module,exports){
+},{}],23:[function(require,module,exports){
 'use strict';
 
 
@@ -6598,7 +6858,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],22:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -6641,7 +6901,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],23:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 
 var utils   = require('../utils/common');
@@ -8491,7 +8751,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":18,"./adler32":20,"./crc32":22,"./messages":28,"./trees":29}],24:[function(require,module,exports){
+},{"../utils/common":20,"./adler32":22,"./crc32":24,"./messages":30,"./trees":31}],26:[function(require,module,exports){
 'use strict';
 
 
@@ -8533,7 +8793,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],25:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -8861,7 +9121,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],26:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 'use strict';
 
 
@@ -10401,7 +10661,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":18,"./adler32":20,"./crc32":22,"./inffast":25,"./inftrees":27}],27:[function(require,module,exports){
+},{"../utils/common":20,"./adler32":22,"./crc32":24,"./inffast":27,"./inftrees":29}],29:[function(require,module,exports){
 'use strict';
 
 
@@ -10730,7 +10990,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":18}],28:[function(require,module,exports){
+},{"../utils/common":20}],30:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -10745,7 +11005,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],29:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 'use strict';
 
 
@@ -11949,7 +12209,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":18}],30:[function(require,module,exports){
+},{"../utils/common":20}],32:[function(require,module,exports){
 'use strict';
 
 

@@ -126,6 +126,7 @@
       <input name="draw" class="switch-input" type="checkbox" />
       <span class="switch-label" data-on="Drawing" data-off="Viewing"></span> <span class="switch-handle"></span> </label>
 	    <input name="clear" type="button" value="Clear" class="switch "/>
+	      <input name="download" type="button" value="Download" class="switch "/>
 </body>
 </html>
 
@@ -148,7 +149,7 @@
 	//Get mirror
 	var mirror = iframe.contentWindow.document;
 		
-	var reflector = new swis.Reflector(transport,{chunk:200});
+	var reflector = new swis.Reflector(transport,{chunk:200,recording:true});
 	
 	window.addEventListener("message", function(message){
 		//If first time
@@ -220,6 +221,13 @@
 			.addEventListener("click",function(e){
 				//Clear
 				reflector.clear();
+			});
+	
+	//Drawing/not drawing
+	document.querySelector("input[name='download']")
+			.addEventListener("click",function(e){
+				//Clear
+				reflector.download();
 			});
 	
 </script>
