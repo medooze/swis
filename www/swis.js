@@ -4040,11 +4040,8 @@ Observer.prototype.observe = function(exclude)
 				cloned.removeAttribute("src");
 				//And Remove srcdoc
 				cloned.removeAttribute("srcdoc");
-			} else if (cloned.nodeName==="#text" && !cloned.textContent.length)
-				//HACK: Replace by a zero width space so the node is created on the mirror also
-				cloned.textContent = '\u200B';
 			//Change BASE href
-			else if (cloned.nodeName==="BASE")
+			} else if (cloned.nodeName==="BASE")
 				//Change href
 				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),document.location.href).toString());
 			else if (cloned.nodeName==="INPUT")
@@ -4089,6 +4086,14 @@ Observer.prototype.observe = function(exclude)
 					//If previous was also a text node
 					if (child.previousSibling && child.previousSibling.nodeName==="#text")
 					{
+						//Appand for creating them async
+						texts.push(child);
+						//And skip it
+						continue;
+					//Also process it async if it is empty
+					} else if (!child.textContent.length) {
+						//This is first one
+						first = child;
 						//Appand for creating them async
 						texts.push(child);
 						//And skip it
@@ -4648,6 +4653,10 @@ var inherits = require('inherits');
 
 function createElementFromHTML (html)
 {
+	//If it is an empty string
+	if (!html)
+		//Return an empty text node
+		return document.createTextNode(html);
 	//Default wrap
 	var wrap = [0,"",""];
 	// From jquery
