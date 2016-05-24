@@ -210,6 +210,11 @@
 		iframe.height = data.height; + (iframe.height -iframe.contentWindow.document.documentElement.clientheight);
 	});
 	
+	reflector.on("scroll",function(data){
+			
+		iframe.contentWindow.scrollTo(data.x, data.y);
+	});
+	
 	//Drawing/not drawing
 	document.querySelector("input[name='draw']")
 			.addEventListener("change",function(e){

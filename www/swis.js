@@ -82,18 +82,11 @@ EventEmitter.prototype.emit = function(type) {
         break;
       // slower
       default:
-        len = arguments.length;
-        args = new Array(len - 1);
-        for (i = 1; i < len; i++)
-          args[i - 1] = arguments[i];
+        args = Array.prototype.slice.call(arguments, 1);
         handler.apply(this, args);
     }
   } else if (isObject(handler)) {
-    len = arguments.length;
-    args = new Array(len - 1);
-    for (i = 1; i < len; i++)
-      args[i - 1] = arguments[i];
-
+    args = Array.prototype.slice.call(arguments, 1);
     listeners = handler.slice();
     len = listeners.length;
     for (i = 0; i < len; i++)
@@ -131,7 +124,6 @@ EventEmitter.prototype.addListener = function(type, listener) {
 
   // Check for listener leak
   if (isObject(this._events[type]) && !this._events[type].warned) {
-    var m;
     if (!isUndefined(this._maxListeners)) {
       m = this._maxListeners;
     } else {
@@ -253,7 +245,7 @@ EventEmitter.prototype.removeAllListeners = function(type) {
 
   if (isFunction(listeners)) {
     this.removeListener(type, listeners);
-  } else {
+  } else if (listeners) {
     // LIFO order
     while (listeners.length)
       this.removeListener(type, listeners[listeners.length - 1]);
@@ -274,15 +266,20 @@ EventEmitter.prototype.listeners = function(type) {
   return ret;
 };
 
+EventEmitter.prototype.listenerCount = function(type) {
+  if (this._events) {
+    var evlistener = this._events[type];
+
+    if (isFunction(evlistener))
+      return 1;
+    else if (evlistener)
+      return evlistener.length;
+  }
+  return 0;
+};
+
 EventEmitter.listenerCount = function(emitter, type) {
-  var ret;
-  if (!emitter._events || !emitter._events[type])
-    ret = 0;
-  else if (isFunction(emitter._events[type]))
-    ret = 1;
-  else
-    ret = emitter._events[type].length;
-  return ret;
+  return emitter.listenerCount(type);
 };
 
 function isFunction(arg) {
@@ -3178,6 +3175,14 @@ MessageFactory.prototype.appendMessage = function(type,message)
 		case MessageType.Clear:
 			//Empty
 			break;
+		case MessageType.Scroll:
+			// target: target
+			// top:
+			// left:
+			bytebuffer.writeVarint32(message.target);
+			bytebuffer.writeVarint32(message.top || 0);
+			bytebuffer.writeVarint32(message.left || 0);
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3493,6 +3498,14 @@ MessageParser.prototype.next = function()
 		case MessageType.Clear:
 			//Empty
 			break;
+		case MessageType.Scroll:
+			// target: target
+			// top:
+			// left:
+			message.target = bytebuffer.readVarint32();
+			message.top = bytebuffer.readVarint32();
+			message.left = bytebuffer.readVarint32();
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3784,7 +3797,8 @@ module.exports = [
 	"MediaQueryMatches",
 	"SelectionChange",
 	"Paint",
-	"Clear"
+	"Clear",
+	"Scroll"
 ];
 },{}],12:[function(require,module,exports){
 var MessageType = require("./message/type.js");
@@ -4135,7 +4149,14 @@ Observer.prototype.observe = function(exclude)
 				});
 			}
 		}
-		
+		//If it is scrlled
+		if (element.scrollTop || element.scrollLeft)
+			//Send the scroll event async
+			postpone(MessageType.Scroll,{
+				target	: id,
+				top	: element.scrollTop,
+				left	: element.scrollLeft
+			});
 		//TODO: remove!!
 		if (element.dataset) element.dataset["swisId"] = id;
 		
@@ -4447,7 +4468,39 @@ Observer.prototype.observe = function(exclude)
 	}), true);
 
 	
-	 window.addEventListener("resize", (this.onresize = function(e){
+	window.addEventListener("scroll", (this.onscroll = function(e){
+		//Get target
+		var target = 0, top, left;
+		//If is is in the window
+		if (e.target!==document)
+		{
+			//Search elements id
+			target = map.get(e.target);
+			//If not found
+			if (!target)
+				//Ignore it
+				return;
+			//Get values
+			top  = e.target.scrollTop;
+			left = e.target.scrollLeft;
+		} else {
+			//Get it from window
+			top  = window.scrollY;
+			left = window.scrollX; 
+		}
+		
+		//Check if we have changed
+		queue(MessageType.Scroll,{
+			target: target,
+			top: top,
+			left: left
+		});
+
+		//Redraw highlights
+		self.highlighter && self.highlighter.redraw();
+	}),true);
+	
+	window.addEventListener("resize", (this.onresize = function(e){
 		//Check if we have changed
 		queue(MessageType.Resize,{
 			width: window.innerWidth,
@@ -4603,7 +4656,7 @@ Observer.prototype.observe = function(exclude)
 	//Create canvas
 	this.canvas = new Canvas(document);
 	//Create seleciton hihglighter
-	this.highlighter = new SelectionHighlighter(document);
+	this.highlighter = new SelectionHighlighter(window);
 };
 
 Observer.prototype.stop = function()
@@ -4630,6 +4683,7 @@ Observer.prototype.stop = function()
 	document.removeEventListener("change", this.onchange, true);
 	document.removeEventListener("selectionchange", this.onselectionchange, true);
 	window.removeEventListener("resize", this.onresize , true);
+	window.removeEventListener("scroll", this.onscroll , true);
 	
 	//remove maps
 	this.map = null;
@@ -5417,6 +5471,27 @@ Reflector.prototype.reflect = function(mirror)
 										endOffset: message.endOffset
 									});
 									break;
+								//Scrolling
+								case MessageType.Scroll:
+									//console.log("Scroll",message);
+									//Check if it is the window
+									if (!message.target)
+									{
+										//Emit event
+										self.emit("scroll",{
+											x: message.left,
+											y: message.top
+										});
+									} else {
+										//Get target
+										var target = reverse[message.target];
+										//Scroll
+										target.scrollTop = message.top;
+										target.scrollLeft = message.left;
+										//Redraw highlights
+										self.highlighter.redraw();
+									}
+									break;
 								default:
 									console.error("unknown message",message);
 							}
@@ -5652,6 +5727,42 @@ SelectionHighlighter.prototype.close = function()
 
 module.exports = SelectionHighlighter;
 },{"./utils.js":15}],15:[function(require,module,exports){
+//Get the portion of a rectangle inside a bounary
+function clipRect(rect,boundary){
+	//Get bundary limits
+	var left	= boundary.left;
+	var right	= boundary.left+boundary.width;
+	var top		= boundary.top;
+	var bottom	= boundary.top+boundary.height;
+	//If it is outside 
+	if ( rect.left+rect.width<left || 
+		rect.left>right  ||
+		rect.top+rect.height<top ||
+		rect.top>bottom		
+	)
+		//No rectangle
+		return false;
+	//Get inner part
+	return {
+		left	: Math.max(rect.left,left),
+		top	: Math.max(rect.top,top),
+		width	: Math.min(rect.left+rect.width,right)-Math.max(rect.left,left),
+		height	: Math.min(rect.top+rect.height,bottom)-Math.max(rect.top,top)
+	};
+	
+}
+
+//Get the portion of a rectangle inside a bounary
+function getElementScrollRect(node){
+
+	return {
+		top	: node.scrollTop,
+		left	: node.scrollLeft,
+		width	: node.clientWidth,
+		height	: node.clientHeight
+	};
+	
+}
 function getSelectionClientRects(document,selection)
 {
 	//Check
