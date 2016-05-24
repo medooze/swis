@@ -4349,6 +4349,22 @@ Observer.prototype.observe = function(exclude)
 			y: event.pageY
 		});
 	}),true);
+	
+	document.addEventListener ("mouseup", (this.mouseup = function (event) {
+		//HACK: resize in textarea does not trigger DOM mutation event in chrome
+		if (event.target.nodeName==="TEXTAREA")
+		{
+			//Get target
+			var target = map.get(event.target);
+			//Emulate DOM mutations
+			//TODO: Add fine grained events
+			queue(MessageType.Attributes,{
+				target	: target,
+				key	: 'style',
+				value	: event.target.style.cssText
+			});
+		}
+	}),true);
 
 	var hovered;
 	document.addEventListener("mouseover", (this.onmouseover = function(e){
@@ -4656,7 +4672,7 @@ Observer.prototype.observe = function(exclude)
 	//Create canvas
 	this.canvas = new Canvas(document);
 	//Create seleciton hihglighter
-	this.highlighter = new SelectionHighlighter(window);
+	this.highlighter = new SelectionHighlighter(document);
 };
 
 Observer.prototype.stop = function()
@@ -4675,6 +4691,7 @@ Observer.prototype.stop = function()
 		this.mediaqueries[i].removeListener(this.mediaQueryListener);
 	
 	//Remove DOM event listeners
+	document.removeEventListener("mouseup", this.mouseup ,true);
 	document.removeEventListener("mousemove", this.onmousemove ,true);
 	document.removeEventListener("mouseover", this.onmouseover, true);
 	document.removeEventListener("focus", this.onfocus, true);
@@ -5488,8 +5505,6 @@ Reflector.prototype.reflect = function(mirror)
 										//Scroll
 										target.scrollTop = message.top;
 										target.scrollLeft = message.left;
-										//Redraw highlights
-										self.highlighter.redraw();
 									}
 									break;
 								default:
@@ -5503,6 +5518,8 @@ Reflector.prototype.reflect = function(mirror)
 					for (var id in deleted)
 						//Release delete node refs
 						release(id);
+					//Redraw highlights
+					self.highlighter.redraw();
 					//Send changed event
 					self.emit("change");
 				}).catch(function(error){
