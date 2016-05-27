@@ -3183,6 +3183,10 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			bytebuffer.writeVarint32(message.top || 0);
 			bytebuffer.writeVarint32(message.left || 0);
 			break;
+		case MessageType.UpdateRequest:
+			// target: target
+			bytebuffer.writeVarint32(message.target);
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3506,6 +3510,10 @@ MessageParser.prototype.next = function()
 			message.top = bytebuffer.readVarint32();
 			message.left = bytebuffer.readVarint32();
 			break;
+		case MessageType.UpdateRequest:
+			// target: target
+			message.target	= bytebuffer.readVarint32();
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3798,7 +3806,8 @@ module.exports = [
 	"SelectionChange",
 	"Paint",
 	"Clear",
-	"Scroll"
+	"Scroll",
+	"UpdateRequest"
 ];
 },{}],12:[function(require,module,exports){
 var MessageType = require("./message/type.js");
@@ -4176,6 +4185,30 @@ Observer.prototype.observe = function(exclude)
 		//Return cloned element
 		return cloned;
 	}
+	function release(id,node)
+	{
+		//Remove node from map
+		map.delete(node);
+		delete(reverse[id]);
+
+		//TODO: remove!!
+		if (node.dataset) delete(node.dataset["swisId"]);
+		
+		//For each child node
+		for (var i=0;i<node.childNodes.length;++i)
+			//Release recursivelly
+			releaseNode(node.childNodes[i]);
+	}
+	
+	function releaseNode(node)
+	{
+		//get id
+		var id = map.get(node);
+		//If it was found
+		if (id)
+			//Release it
+			release(id,node);
+	}
 	
 	//Clone DOM
 	var cloned = clone(document,exclude);
@@ -4326,11 +4359,8 @@ Observer.prototype.observe = function(exclude)
 		flush();
 		//Garbage collect
 		for (var id in deleted)
-		{
-			//Remove node from map
-			map.delete(deleted[id]);
-			delete(reverse[id]);
-		}
+			//Release nodes
+			release(id,deleted[id]);
 		//Send changed event
 		self.emit("change");
 	});
@@ -4432,39 +4462,45 @@ Observer.prototype.observe = function(exclude)
 			});
 	}),true);
 	
-	//Get all inputs
-	var inputs = document.querySelectorAll("input");
-	
-	//Foe ach one
-	for (var i=0;i<inputs.length;++i)
+	function fillInputs(node)
 	{
-		//Get id
-		var id = map.get(inputs[i]);
-		//If not tracked
-		if (!id)
-			//Ignore
-			continue;
-		
-		//Check if it is a radio or a checkbox
-		if (inputs[i].type==="checkbox" || inputs[i].type==="radio")
+		//Get all inputs
+		var inputs = node.querySelectorAll("input");
+
+		//Foe ach one
+		for (var i=0;i<inputs.length;++i)
 		{
-			//If it has any value
-			if (inputs[i].checked)
-				//Check if we have been checked
-				queue(MessageType.Checked,{
-					target: id,
-					value: inputs[i].checked
-				});
-		} else {
-			//If it has any value
-			if (inputs[i].value)
-				//Check if we have changed
-				queue(MessageType.Input,{
-					target: id,
-					value: inputs[i].value
-				});
+			//Get id
+			var id = map.get(inputs[i]);
+			//If not tracked
+			if (!id)
+				//Ignore
+				continue;
+
+			//Check if it is a radio or a checkbox
+			if (inputs[i].type==="checkbox" || inputs[i].type==="radio")
+			{
+				//If it has any value
+				if (inputs[i].checked)
+					//Check if we have been checked
+					queue(MessageType.Checked,{
+						target: id,
+						value: inputs[i].checked
+					});
+			} else {
+				//If it has any value
+				if (inputs[i].value)
+					//Check if we have changed
+					queue(MessageType.Input,{
+						target: id,
+						value: inputs[i].value
+					});
+			}
 		}
 	}
+	
+	//Prefill all input values
+	fillInputs(document);
 
 	document.addEventListener("selectionchange", (this.onselectionchange = function(e) {
 		//Get selection
@@ -4534,6 +4570,13 @@ Observer.prototype.observe = function(exclude)
 		height: window.innerHeight
 	});
 	
+	//Send initial scroll
+	queue(MessageType.Scroll,{
+		target: 0,
+		top: window.scrollY,
+		left: window.scrollX
+	});
+		
 	//Listener for media query changes
 	this.mediaQueryListener = function(event) {
 		//Get mql
@@ -4659,6 +4702,31 @@ Observer.prototype.observe = function(exclude)
 								//Delete local selection also
 								document.getSelection().removeAllRanges();
 								break;
+							//Update element request
+							case MessageType.UpdateRequest:
+								//Get target element
+								var target = reverse[message.target];
+								//Delete element referencesl
+								release(message.target,target);
+								//Clone DOM element again and add ids
+								var cloned = clone(target,exclude);
+								//Send event
+								queue(MessageType.ChildList,{
+									target		: map.get(target.parentNode),
+									previous	: map.get(target.previousSibling),
+									next		: map.get(target.nextSibling),
+									added		: [getHTML(cloned)],
+									deleted		: [message.target]
+								});
+								//Prefill all input values
+								fillInputs(target);
+								//Update scroll after request (JIC)
+								queue(MessageType.Scroll,{
+									target: 0,
+									top: window.scrollY,
+									left: window.scrollX
+								});
+								break;
 							default:
 								console.error("unknown message",message);
 						}	
@@ -4704,6 +4772,7 @@ Observer.prototype.stop = function()
 	
 	//remove maps
 	this.map = null;
+	this.reverse = null;
 	this.factory = null;
 	this.mediaqueries = null;
 };
@@ -4715,60 +4784,14 @@ var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
 var MessageChunkAggregator = require("./message/aggregator.js");
 var MessageRecorder = require("./message/recorder.js");
-
+var Utils = require("./utils.js");
 var Canvas = require("./canvas.js");
 var SelectionHighlighter = require("./selectionhighlighter.js")
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
 
-function createElementFromHTML (html)
-{
-	//If it is an empty string
-	if (!html)
-		//Return an empty text node
-		return document.createTextNode(html);
-	//Default wrap
-	var wrap = [0,"",""];
-	// From jquery
-	var wrapMap = {
-		option: [ 1, "<select multiple='multiple'>", "</select>" ],
-		legend: [ 1, "<fieldset>", "</fieldset>" ],
-		area: [ 1, "<map>", "</map>" ],
-		param: [ 1, "<object>", "</object>" ],
-		tbody: [ 1, "<table>", "</table>" ],
-		thead: [ 1, "<table>", "</table>" ],
-		tr: [ 2, "<table><tbody>", "</tbody></table>" ],
-		col: [ 2, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
-		td: [ 3, "<table><tbody><tr>", "</tr></tbody></table>" ]
-	};
 
-	//Check if we need to wrap
-	for (var tag in wrapMap) 
-	{
-		//Check if it is this element
-		if (html.substr(1,tag.length).toLowerCase()===tag)
-		{
-			//Store wrap
-			wrap = wrapMap[tag];
-			//Found
-			break;
-		}
-	}
-
-	//Parse
-	var tmp = document.implementation.createHTMLDocument();
-	//Append wrap and parse
-	tmp.body.innerHTML = wrap[1]+html+wrap[2];
-	//Find element
-	var element = tmp.body.childNodes[0];
-	//Unwrap
-	for (var i=0;i<wrap[0];++i)
-		//Get child
-		element = element.childNodes[0];
-	//Return element
-	return element;
-}
 
 function resolveCSSURLs(css,base) 
 {
@@ -5254,6 +5277,8 @@ Reflector.prototype.reflect = function(mirror)
 					var timer = null;
 					//List of deleted nodes
 					var deleted = {};
+					//List of nodes with errors
+					var corrupted = {};
 					//For each message
 					while(parser.hasNext())
 					{
@@ -5300,7 +5325,7 @@ Reflector.prototype.reflect = function(mirror)
 										if (typeof message.added[i] === "string")
 										{
 											//Create node from HTML
-											var node = createElementFromHTML(message.added[i]);
+											var node = Utils.createElementFromHTML(message.added[i]);
 											//Pupulate it
 											populate(node);
 											//Add
@@ -5331,7 +5356,7 @@ Reflector.prototype.reflect = function(mirror)
 										//For each one
 										for (var i=0;i<childs.length;++i)
 											//Apply it
-											childs[i].disabled = value || mediaRules[childs[i].dataset["swisMediaRuleId"]].disabled;
+											childs[i].disabled = message.value || mediaRules[childs[i].dataset["swisMediaRuleId"]].disabled;
 									}
 									break;
 								case MessageType.CharacterData:
@@ -5344,7 +5369,7 @@ Reflector.prototype.reflect = function(mirror)
 									if (target.parentNode.nodeName === "STYLE")
 									{
 										//Get id of parent
-										var parentId = map.get(target.parentNode)
+										var parentId = map.get(target.parentNode);
 										//Clean childs
 										releaseCSSChilds(parentId);
 										//If it is the first CSS on this run
@@ -5510,19 +5535,53 @@ Reflector.prototype.reflect = function(mirror)
 								default:
 									console.error("unknown message",message);
 							}
-						} catch (e) {
-							console.error(e);
+						} catch (error) {
+							//Error
+							console.error(error,message);
+							//If it tageted a node
+							if (message.target)
+								//Add it to the corrupted list
+								corrupted[message.target] = reverse[message.target];
 						}
 					}
 					//Garbage collect
 					for (var id in deleted)
 						//Release delete node refs
 						release(id);
+					//NOthing to request yet
+					var ancestors = null;
+					//Has any node been corrupted?
+					for (var t in corrupted )
+					{
+						//Get target node
+						var target = corrupted[t];
+						//If first
+						if (!ancestors)
+						{
+							//Reset parent
+							ancestors = Utils.getAncestors(target.parentNode);
+						//Dont request upper than body
+						} else {
+							//Get common ancestors
+							ancestors = Utils.getAncestors(ancestors,Utils.getAncestors(target.parentNode));
+						}
+					}
+					//Do we need to reset?
+					if (ancestors)
+					{
+						///Get target
+						var target = map.get(ancestors[0]);
+						//request an update
+						queue(MessageType.UpdateRequest, {
+							target: target
+						});
+					}
 					//Redraw highlights
 					self.highlighter.redraw();
 					//Send changed event
 					self.emit("change");
 				}).catch(function(error){
+					//Error
 					console.error(error);
 				});
 		}
@@ -5570,6 +5629,17 @@ Reflector.prototype.clear = function()
 	this.mirror.getSelection().removeAllRanges();
 	//Queue change
 	this.queue(MessageType.Clear);
+};
+
+
+Reflector.prototype.refresh = function()
+{
+	///Get target
+	var target = this.map.get(this.mirror.body);
+	//request an update
+	this.queue(MessageType.UpdateRequest, {
+		target: target
+	});
 };
 
 Reflector.prototype.paint = function(flag)
@@ -5662,7 +5732,7 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/recorder.js":9,"./message/type.js":10,"./selectionhighlighter.js":14,"events":1,"inherits":16}],14:[function(require,module,exports){
+},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/recorder.js":9,"./message/type.js":10,"./selectionhighlighter.js":14,"./utils.js":15,"events":1,"inherits":16}],14:[function(require,module,exports){
 var Utils = require("./utils.js");
 
 function SelectionHighlighter(document)
@@ -5744,6 +5814,30 @@ SelectionHighlighter.prototype.close = function()
 
 module.exports = SelectionHighlighter;
 },{"./utils.js":15}],15:[function(require,module,exports){
+function getCommonAncestors(ancestorsA,ancestorsB)
+{
+	//Iterate in reverse order
+	var a = ancestorsA.length;
+	var b = ancestorsB.length;
+	//Find inner most ancestor (note it is 1 and not 0 because --iterator)
+	while (a>1 && b>1)
+		//Check if they are still the same
+		if (ancestorsA[--a] !== ancestorsB[--b])
+			//Common ancestors was the previous ones
+			break;
+	//They are the same
+	return ancestorsA.splice(a);
+}
+function getAncestors(node) {
+	var ancestors = [];
+	var parent = node;
+	//Get until no parents
+	while ((parent=parent.parentNode))
+		//Push it
+		ancestors.push(parent);
+	//Return list of ancestors in reverse order
+	return ancestors;
+}
 //Get the portion of a rectangle inside a bounary
 function clipRect(rect,boundary){
 	//Get bundary limits
@@ -5767,6 +5861,66 @@ function clipRect(rect,boundary){
 		height	: Math.min(rect.top+rect.height,bottom)-Math.max(rect.top,top)
 	};
 	
+}
+
+function createElementFromHTML (html)
+{
+	//If it is an empty string
+	if (!html)
+		//Return an empty text node
+		return document.createTextNode(html);
+	
+	//If it is the body element
+	if (html.substr(1,"body".length).toLowerCase()==="body")
+	{
+		//Parse
+		var tmp = document.implementation.createHTMLDocument();
+		//Set full HTML body and parse
+		tmp.body.outerHTML = html;
+		//Return body
+		return tmp.body;
+	}
+	
+	//Default wrap
+	var wrap = [0,"",""];
+	// From jquery
+	var wrapMap = {
+		option: [ 1, "<select multiple='multiple'>", "</select>" ],
+		legend: [ 1, "<fieldset>", "</fieldset>" ],
+		area: [ 1, "<map>", "</map>" ],
+		param: [ 1, "<object>", "</object>" ],
+		tbody: [ 1, "<table>", "</table>" ],
+		thead: [ 1, "<table>", "</table>" ],
+		tr: [ 2, "<table><tbody>", "</tbody></table>" ],
+		col: [ 2, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
+		td: [ 3, "<table><tbody><tr>", "</tr></tbody></table>" ]
+	};
+
+	//Check if we need to wrap
+	for (var tag in wrapMap) 
+	{
+		//Check if it is this element
+		if (html.substr(1,tag.length).toLowerCase()===tag)
+		{
+			//Store wrap
+			wrap = wrapMap[tag];
+			//Found
+			break;
+		}
+	}
+
+	//Parse
+	var tmp = document.implementation.createHTMLDocument();
+	//Append wrap and parse
+	tmp.body.innerHTML = wrap[1]+html+wrap[2];
+	//Find element
+	var element = tmp.body.childNodes[0];
+	//Unwrap
+	for (var i=0;i<wrap[0];++i)
+		//Get child
+		element = element.childNodes[0];
+	//Return element
+	return element;
 }
 
 //Get the portion of a rectangle inside a bounary
@@ -5855,8 +6009,11 @@ function getSelectionClientRects(document,selection)
 };
 
 module.exports = {
-	getSelectionClientRects: getSelectionClientRects
-}
+	getSelectionClientRects: getSelectionClientRects,
+	getAncestors : getAncestors,
+	getCommonAncestors: getCommonAncestors,
+	createElementFromHTML: createElementFromHTML
+};
 },{}],16:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
