@@ -11,6 +11,9 @@
 			padding: 1px;
 			margin: 1px;
 		}
+		#text {
+			
+		}
 	</style>
 <body></body>
 </html>
@@ -30,7 +33,7 @@
 	function text(str) {
 		var t = document.createTextNode("");
 		if (str)
-			t.contentText = str;
+			t.textContent = str;
 		return t;
 	}
 	function reset() {
@@ -73,6 +76,12 @@
 	
 	var k=0;
 	var tests = [
+		function(){
+			console.log("1[#text,#text,#text]");
+			body.appendChild(div(text(),text("2"),text("3")));
+			dump();
+		},
+		reset,		
 		function(){
 			console.log("1[2,3]");
 			body.appendChild(div(div,div));
@@ -142,7 +151,8 @@
 			d1.replaceChild(div(text),d1.childNodes[1]);
 			dump();
 		},
-		clean,
+		reset,
+		
 	];
 	
 	function n() {
