@@ -117,6 +117,35 @@
 	box-shadow: inset 0 1px rgba(0, 0, 0, 0.02);
 	cursor: pointer;
     }
+    #container
+    {
+	    overflow: scroll;
+	  //  border: 2px solid red;
+    }
+    iframe {
+	    overflow: hidden;
+    }
+	#container::-webkit-scrollbar-track-piece{
+		background-color:#fff;
+		-webkit-border-radius:0;
+	}
+	#container::-webkit-scrollbar{
+		width:8px;
+		height:8px;
+	}
+	#container::-webkit-scrollbar-thumb{
+		height:50px;
+		background-color:#999;
+		-webkit-border-radius:4px;
+		outline:2px solid #fff;
+		outline-offset:-2px;
+		border: 2px solid #fff;
+	}
+	#container::-webkit-scrollbar-thumb:hover{
+		height:50px;
+		background-color:#9f9f9f;
+		-webkit-border-radius:4px;
+	}
 </style>
     </head>
 
@@ -127,12 +156,14 @@
       <span class="switch-label" data-on="Drawing" data-off="Viewing"></span> <span class="switch-handle"></span> </label>
 	    <input name="clear" type="button" value="Clear" class="switch "/>
 	      <input name="download" type="button" value="Download" class="switch "/>
+	      <div id="container"></div>
 </body>
 </html>
 
 <script src="swis.js"></script>
 <script>
 	var remoteCursor;
+	var remoteCursorContainer;
 	var source;
 	var transport = {
 		onload : null,
@@ -143,11 +174,21 @@
 	};
 	//Create iframe	
 	var iframe = document.createElement("iframe");
-	iframe.style.border = "0px";
-	//Append it 
-	document.documentElement.appendChild(iframe);
+	//Append it to container
+	container.appendChild(iframe);
 	//Get mirror
 	var mirror = iframe.contentWindow.document;
+	//Container of the cursor
+	remoteCursorContainer = mirror.createElement("div");
+	remoteCursorContainer.style["pointer-events"] = "none";
+	remoteCursorContainer.style["position"] = "absolute";
+	remoteCursorContainer.style["width"] = "100%";
+	remoteCursorContainer.style["height"] = "100%";
+	remoteCursorContainer.style["overflow"] = "hidden";
+	remoteCursorContainer.style["left"] = "0px";
+	remoteCursorContainer.style["top"] =  "0px";
+	//Insert into document
+	container.appendChild(remoteCursorContainer);
 		
 	var reflector = new swis.Reflector(transport,{chunk:200,recording:true});
 	
@@ -172,6 +213,7 @@
 		//Check if first cursor
 		if (!remoteCursor)
 		{
+			
 			//Create new element
 			remoteCursor = mirror.createElement("div");
 			//Set absolute positioning
@@ -187,8 +229,8 @@
 			remoteCursor.style["z-index"] = "99999999999999999999999999";
 			//Set text
 			remoteCursor.innerHTML = "^Remote Cursor";
-			//Insert into
-			mirror.documentElement.appendChild(remoteCursor);
+			//Insert into container
+			remoteCursorContainer.appendChild(remoteCursor);
 		}
 		//Set new position
 		remoteCursor.style["left"] = data.x + "px";
@@ -197,6 +239,7 @@
 	
 	var first = true;
 	reflector.on("resize",function(data){
+		/*
 		//If it is first time
 		if (first)
 		{
@@ -208,11 +251,21 @@
 			
 		iframe.width = data.width + (iframe.width -iframe.contentWindow.document.documentElement.clientWidth);
 		iframe.height = data.height; + (iframe.height -iframe.contentWindow.document.documentElement.clientheight);
+		*/
+	       //Set the container width
+	       container.style.width =  "400px";//(data.width + (data.height<data.scrollHeight? 8 : 0)) +"px";
+	       container.style.height = "200px";//(data.height+ (data.width <data.scrollWidth ? 8 : 0)) +"px";
+	       iframe.width = data.scrollWidth;
+	       iframe.height = data.scrollHeight;
+	       remoteCursorContainer.style.width = data.scrollWidth;
+	       remoteCursorContainer.style.height = data.scrollHeight;
 	});
 	
 	reflector.on("scroll",function(data){
-			
-		iframe.contentWindow.scrollTo(data.x, data.y);
+		container.scrollTop = data.top;
+		container.scrollLeft = data.left;
+		remoteCursorContainer.scrollTop = data.top;
+		remoteCursorContainer.scrollLeft = data.left;
 	});
 	
 	//Drawing/not drawing

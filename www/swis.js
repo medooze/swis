@@ -3104,6 +3104,8 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// height: window.innerHeight
 			bytebuffer.writeUint16(message.width);
 			bytebuffer.writeUint16(message.height);
+			bytebuffer.writeUint16(message.scrollWidth);
+			bytebuffer.writeUint16(message.scrollHeight);
 			break;
 		case MessageType.Base:
 			// href: document.location.href
@@ -3435,9 +3437,13 @@ MessageParser.prototype.next = function()
 			break;
 		case MessageType.Resize:
 			// width: window.innerWidth,
-			// height: window.innerHeight
+			// height: window.innerHeight,
+			// scrollWidth: document.body.scrollWidth,
+			// scrollHeight: document.body.scrollHeight
 			message.width	= bytebuffer.readUint16();
 			message.height	= bytebuffer.readUint16();
+			message.scrollWidth  = bytebuffer.readUint16();
+			message.scrollHeight = bytebuffer.readUint16();
 			break;
 		case MessageType.Base:
 			// href: document.location.href
@@ -3755,7 +3761,6 @@ MessageRecorder.prototype.push = function(messages)
 		header.flip();
 		//Append header
 		this.parts.push(header.toArrayBuffer(true));
-		console.log("record: "+timestamp +" "+length);
 		//Apend message
 		this.parts.push(messages[i]);
 	}
@@ -4271,6 +4276,7 @@ Observer.prototype.observe = function(exclude)
 	this.observer = new MutationObserver (function (mutations) {
 		var handled = {};
 		var deleted = {};
+		var resized = false;
 		mutations.forEach (function (mutation) {
 			//console.log(mutation);
 			var message;
@@ -4284,7 +4290,7 @@ Observer.prototype.observe = function(exclude)
 			switch(mutation.type)
 			{
 				case "childList":
-					console.log(mutation);
+					//console.log(mutation);
 					//Mutation message
 					var message = {
 						target		: target,
@@ -4356,6 +4362,10 @@ Observer.prototype.observe = function(exclude)
 						//Create empty 
 						handled[target] = {};
 					}
+					//Check if we are updating the stile body
+					if (target===document.body && mutation.attributeName==="style")
+						//We may have been resized
+						resized = true;
 						
 					//Mutaion message
 					queue(MessageType.Attributes,{
@@ -4376,6 +4386,23 @@ Observer.prototype.observe = function(exclude)
 			}
 			
 		});
+		//in case the document coudl have been resized
+		if (resized)
+		{
+			//Check if we have changed
+			queue(MessageType.Resize,{
+				width: window.innerWidth,
+				height: window.innerHeight,
+				scrollWidth: document.body.scrollWidth,
+				scrollHeight: document.body.scrollHeight
+			});
+			//Send initial scroll
+			queue(MessageType.Scroll,{
+				target: 0,
+				top: window.scrollY,
+				left: window.scrollX
+			});
+		}
 		//Flush
 		flush();
 		//Garbage collect
@@ -4577,7 +4604,15 @@ Observer.prototype.observe = function(exclude)
 		//Check if we have changed
 		queue(MessageType.Resize,{
 			width: window.innerWidth,
-			height: window.innerHeight
+			height: window.innerHeight,
+			scrollWidth: document.body.scrollWidth,
+			scrollHeight: document.body.scrollHeight
+		});
+		//Send initial scroll
+		queue(MessageType.Scroll,{
+			target: 0,
+			top: window.scrollY,
+			left: window.scrollX
 		});
 		//Redraw canvas
 		self.canvas && self.canvas.resize();
@@ -4588,7 +4623,9 @@ Observer.prototype.observe = function(exclude)
 	//Send initial size
 	queue(MessageType.Resize,{
 		width: window.innerWidth,
-		height: window.innerHeight
+		height: window.innerHeight,
+		scrollWidth: document.body.scrollWidth,
+		scrollHeight: document.body.scrollHeight
 	});
 	
 	//Send initial scroll
@@ -5228,8 +5265,8 @@ Reflector.prototype.reflect = function(mirror)
 		
 		//Process styles
 		processStyles();
-		//Always show scrollbars
-		mirror.documentElement.style.overflow = "scroll";
+		//Never show scrollbars
+		mirror.documentElement.style.overflow = "hidden";
 		
 		//Listen mouse events
 		mirror.addEventListener ("mousemove",(self.onmousemove = function (event) {
@@ -5336,7 +5373,7 @@ Reflector.prototype.reflect = function(mirror)
 									init(message.href,message.html);
 									break;
 								case MessageType.ChildList:
-									console.log("ChildList",message);
+									//console.log("ChildList",message);
 									//Get target
 									var target = reverse[message.target];
 									//Get previous
@@ -5506,7 +5543,12 @@ Reflector.prototype.reflect = function(mirror)
 								case MessageType.Resize:
 									//console.log("Resized",message);
 									//Event
-									self.emit("resize",{width: message.width, height: message.height});
+									self.emit("resize",{
+										width: message.width,
+										height: message.height,
+										scrollWidth: message.scrollWidth,
+										scrollHeight: message.scrollHeight
+									});
 									break;
 								//Rebase
 								case MessageType.Base:
@@ -5558,8 +5600,8 @@ Reflector.prototype.reflect = function(mirror)
 									{
 										//Emit event
 										self.emit("scroll",{
-											x: message.left,
-											y: message.top
+											left: message.left,
+											top: message.top
 										});
 									} else {
 										//Get target
@@ -5779,7 +5821,7 @@ Reflector.prototype.stop = function()
 	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
 	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);
 	this.mirror.removeEventListener("submit",this.onsubmit,true);
-	this.mirror.defaultView.removeEventListener("rsize",this.onresize,true);
+	this.mirror.defaultView.removeEventListener("resize",this.onresize,true);
 	
 };
 
