@@ -4771,10 +4771,16 @@ Observer.prototype.observe = function(exclude)
 	this.canvas = new Canvas(document);
 	//Create seleciton hihglighter
 	this.highlighter = new SelectionHighlighter(document);
+	//We are inited
+	this.inited = true;
 };
 
 Observer.prototype.stop = function()
 {
+	//If not inited
+	if (!this.inited)
+		//Do nothing
+		return;
 	//Clear timer (jic)
 	clearTimeout (this.timer);
 	//Stop mutation observer
@@ -5226,7 +5232,7 @@ Reflector.prototype.reflect = function(mirror)
 		mirror.documentElement.style.overflow = "scroll";
 		
 		//Listen mouse events
-		mirror.addEventListener ("mousemove",(this.onmousemove = function (event) {
+		mirror.addEventListener ("mousemove",(self.onmousemove = function (event) {
 			//Send message back
 			queue(MessageType.MouseMove, {
 				x: event.pageX,
@@ -5238,7 +5244,7 @@ Reflector.prototype.reflect = function(mirror)
 				self.path.add(event.pageX,event.pageY);
 		}),true);
 		//Listen selection evetns
-		mirror.addEventListener("selectionchange", (this.onselectionchange = function(e) {
+		mirror.addEventListener("selectionchange", (self.onselectionchange = function(e) {
 			//Get selection
 			var selection = mirror.getSelection();
 			//Get range
@@ -5256,7 +5262,7 @@ Reflector.prototype.reflect = function(mirror)
 		}), true);
 		
 		//Listen selection evetns
-		mirror.addEventListener("submit", (this.onsubmit = function(e) {
+		mirror.addEventListener("submit", (self.onsubmit = function(e) {
 			//Stop submission
 			e.preventDefault();
 			//Exit
@@ -5268,7 +5274,7 @@ Reflector.prototype.reflect = function(mirror)
 		//Create highlighter
 		self.highlighter = new SelectionHighlighter(mirror);
 		//Prepare for resize
-		mirror.defaultView.addEventListener("resize", (this.onresize = function(e) {
+		mirror.defaultView.addEventListener("resize", (self.onresize = function(e) {
 			//resize canvas
 			self.canvas.resize();
 			//Redraw highlights
@@ -5652,6 +5658,9 @@ Reflector.prototype.reflect = function(mirror)
 		//Store state
 		self.path = false;
 	};
+	
+	//We are reflecting
+	this.inited = true;
 };
 Reflector.prototype.clear = function()
 {
@@ -5683,8 +5692,8 @@ Reflector.prototype.paint = function(flag)
 {
 	//Ensure we have canvas
 	if (!this.canvas)
-		//Error
-		throw new Error("You can start paintinf wihtout being inited");
+		//Nothing to do
+		throw new Error("You can't start painting wihtout being inited");
 	
 	//Ensure we are in different state
 	if (this.painting===flag)
@@ -5747,8 +5756,12 @@ Reflector.prototype.download = function()
 
 Reflector.prototype.stop = function()
 {
+	//If not inited
+	if (!this.inited)
+		//Do nothing
+		return;
 	//Clear timer (jic)
-	clearTimeout (self.timer);
+	clearTimeout (this.timer);
 	//Free recording
 	this.recorder  && this.recorder.close();
 	//Stop painting
