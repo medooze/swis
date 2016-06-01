@@ -4473,6 +4473,11 @@ Observer.prototype.observe = function(exclude)
 	}),true);
 
 	document.addEventListener("blur", (this.onblur = function(e){
+		//Firefox launches blur on document
+		//which is not liked by chrome
+		if (e.target===this.mirror)
+			//Ignore it then
+			return;
 		//Check if we have changed
 		queue(MessageType.Blur,{
 			target: map.get(e.target)
@@ -4767,7 +4772,7 @@ Observer.prototype.observe = function(exclude)
 								if (!message.target)
 								{
 									//Scroll document
-									window.scrollTo(message.left,message.left);
+									window.scrollTo(message.top,message.left);
 								} else {
 									//Get target
 									var target = reverse[message.target];
