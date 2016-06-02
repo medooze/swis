@@ -3101,9 +3101,15 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			break;
 		case MessageType.Resize:
 			// width: window.innerWidth,
-			// height: window.innerHeight
+			// height: window.innerHeight,
+			// documentWidth: window.getComputedStyle(document.documentElement).width
+			// documentHeight: window.getComputedStyle(document.documentElement).height
+			// scrollWidth: document.body.scrollWidth,
+			// scrollHeight: document.body.scrollHeight
 			bytebuffer.writeUint16(message.width);
 			bytebuffer.writeUint16(message.height);
+			bytebuffer.writeUint16(message.documentWidth);
+			bytebuffer.writeUint16(message.documentHeight);
 			bytebuffer.writeUint16(message.scrollWidth);
 			bytebuffer.writeUint16(message.scrollHeight);
 			break;
@@ -3438,10 +3444,14 @@ MessageParser.prototype.next = function()
 		case MessageType.Resize:
 			// width: window.innerWidth,
 			// height: window.innerHeight,
+			// documentWidth: window.getComputedStyle(document.documentElement).width
+			// documentHeight: window.getComputedStyle(document.documentElement).height
 			// scrollWidth: document.body.scrollWidth,
 			// scrollHeight: document.body.scrollHeight
 			message.width	= bytebuffer.readUint16();
 			message.height	= bytebuffer.readUint16();
+			message.documentWidth  = bytebuffer.readUint16();
+			message.documentHeight = bytebuffer.readUint16();
 			message.scrollWidth  = bytebuffer.readUint16();
 			message.scrollHeight = bytebuffer.readUint16();
 			break;
@@ -3834,6 +3844,7 @@ function Observer(transport,options)
 	this.reverse = {};
 	this.factory =  new MessageFactory(); 
 	this.mediaqueries = [];
+	this.scrolling = {};
 	//Set defaults
 	this.options = Object.assign({
 		blob: true,
@@ -3862,6 +3873,7 @@ Observer.prototype.observe = function(exclude)
 	var map = this.map;
 	var reverse = this.reverse;
 	var factory = this.factory;
+	var scrolling = this.scrolling;
 	
 	var maxId=1;
 	var doctype = "";
@@ -4393,6 +4405,8 @@ Observer.prototype.observe = function(exclude)
 			queue(MessageType.Resize,{
 				width: window.innerWidth,
 				height: window.innerHeight,
+				documentWidth: parseInt(window.getComputedStyle(document.documentElement).width),
+				documentHeight: parseInt(window.getComputedStyle(document.documentElement).height),
 				scrollWidth: document.body.scrollWidth,
 				scrollHeight: document.body.scrollHeight
 			});
@@ -4466,6 +4480,11 @@ Observer.prototype.observe = function(exclude)
 	}),true);
 
 	document.addEventListener("focus", (this.onfocus = function(e){
+		//Firefox launches blur on document
+		//which is not liked by chrome
+		if (e.target===document)
+			//Ignore it then
+			return;
 		//Check if we have changed
 		queue(MessageType.Focus,{
 			target: map.get(e.target || e.target)
@@ -4475,7 +4494,7 @@ Observer.prototype.observe = function(exclude)
 	document.addEventListener("blur", (this.onblur = function(e){
 		//Firefox launches blur on document
 		//which is not liked by chrome
-		if (e.target===this.mirror)
+		if (e.target===document)
 			//Ignore it then
 			return;
 		//Check if we have changed
@@ -4593,7 +4612,16 @@ Observer.prototype.observe = function(exclude)
 			top  = window.scrollY;
 			left = window.scrollX; 
 		}
-		
+		//Check if scroll event was produced by a RemoteScroll
+		if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
+		{
+			//Ok here it is the event
+			delete(self.scrolling[target]);
+			console.log("IgnoreOnScroll "+left+","+top+" "+target);
+			//Ignore it
+			return;
+		}
+		console.log("OnScroll "+left+","+top);
 		//Check if we have changed
 		queue(MessageType.Scroll,{
 			target: target,
@@ -4610,6 +4638,8 @@ Observer.prototype.observe = function(exclude)
 		queue(MessageType.Resize,{
 			width: window.innerWidth,
 			height: window.innerHeight,
+			documentWidth: parseInt(window.getComputedStyle(document.documentElement).width),
+			documentHeight: parseInt(window.getComputedStyle(document.documentElement).height),
 			scrollWidth: document.body.scrollWidth,
 			scrollHeight: document.body.scrollHeight
 		});
@@ -4629,6 +4659,8 @@ Observer.prototype.observe = function(exclude)
 	queue(MessageType.Resize,{
 		width: window.innerWidth,
 		height: window.innerHeight,
+		documentWidth: parseInt(window.getComputedStyle(document.documentElement).width),
+		documentHeight: parseInt(window.getComputedStyle(document.documentElement).height),
 		scrollWidth: document.body.scrollWidth,
 		scrollHeight: document.body.scrollHeight
 	});
@@ -4767,12 +4799,17 @@ Observer.prototype.observe = function(exclude)
 								break;
 							//Scrolling
 							case MessageType.Scroll:
-								console.log("Scroll",message);
+								console.log("ReScroll "+message.left+","+message.top+" "+message.target);
+								//Store values on scrolling element list, so we can check later and don't double-scroll
+								scrolling[message.target] = {
+									left: message.left,
+									top: message.top
+								};
 								//Check if it is the window
 								if (!message.target)
 								{
 									//Scroll document
-									window.scrollTo(message.top,message.left);
+									window.scrollTo(message.left,message.top);
 								} else {
 									//Get target
 									var target = reverse[message.target];
@@ -4865,12 +4902,14 @@ Observer.prototype.stop = function()
 	document.removeEventListener("selectionchange", this.onselectionchange, true);
 	window.removeEventListener("resize", this.onresize , true);
 	window.removeEventListener("scroll", this.onscroll , true);
-	
+	//Clean mirror
+	this.mirror.documentElement.remove();
 	//remove maps
-	this.map = null;
-	this.reverse = null;
-	this.factory = null;
-	this.mediaqueries = null;
+	this.map = new WeakMap();
+	this.reverse = {};
+	this.factory =  new MessageFactory(); 
+	this.mediaqueries = [];
+	this.scrolling = {};
 };
 
 module.exports = Observer;
@@ -4946,6 +4985,8 @@ function Reflector(transport,options)
 	this.csschilds = {};
 	//Media rules
 	this.mediarules = {};
+	//Scrolling elements
+	this.scrolling = {};
 	//The message factory
 	this.factory =  new MessageFactory(); 
 	//Set defaults
@@ -4985,6 +5026,7 @@ Reflector.prototype.reflect = function(mirror,options)
 	var csschilds = this.csschilds;
 	var mediarules = this.mediarules;
 	var transport = this.transport;
+	var scrolling = this.scrolling;
 	
 	var options = Object.assign({
 			scrollSync: true
@@ -5494,7 +5536,7 @@ Reflector.prototype.reflect = function(mirror,options)
 									//Get target
 									var target = reverse[message.target];
 									//Focus
-									target.focus();
+									target.focus && target.focus();
 									break;	
 								//Blur
 								case MessageType.Blur:
@@ -5502,7 +5544,7 @@ Reflector.prototype.reflect = function(mirror,options)
 									//Get target
 									var target = reverse[message.target];
 									//Blur focus
-									target.blur();
+									target.blur && target.blur();
 									break;
 								//input
 								case MessageType.Input:
@@ -5570,10 +5612,15 @@ Reflector.prototype.reflect = function(mirror,options)
 								//Resized
 								case MessageType.Resize:
 									//console.log("Resized",message);
+									//Set document size
+									mirror.documentElement.style.width  = message.documentWidth  + "px";
+									mirror.documentElement.style.height = message.documentHeight + "px";
 									//Event
 									self.emit("resize",{
 										width: message.width,
 										height: message.height,
+										documentWidth: message.documentWidth,
+										documentHeight: message.documentHeight,
 										scrollWidth: message.scrollWidth,
 										scrollHeight: message.scrollHeight
 									});
@@ -5622,7 +5669,13 @@ Reflector.prototype.reflect = function(mirror,options)
 									break;
 								//Scrolling
 								case MessageType.Scroll:
+									console.log("ReScroll "+message.left+","+message.top+" "+message.target);
 									//console.log("Scroll",message);
+									//Store values on scrolling element list, so we can check later and don't double-scroll
+									scrolling[message.target] = {
+										left: message.left,
+										top: message.top
+									};
 									//Check if it is the window
 									if (!message.target)
 									{
@@ -5663,7 +5716,7 @@ Reflector.prototype.reflect = function(mirror,options)
 						//Get target node
 						var target = corrupted[t];
 						//If we didn't had it
-						if (!target)
+						if (!target || !target.parentNode)
 						{
 							//Request full body
 							ancestors = [mirror.body];
@@ -5856,7 +5909,16 @@ Reflector.prototype.scrollSync = function(flag)
 				top  = window.scrollY;
 				left = window.scrollX; 
 			}
-
+			//Check if scroll event was produced by a RemoteScroll
+			if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
+			{
+				//Ok here it is the event
+				delete(self.scrolling[target]);
+				console.log("IgnoreOnScroll "+left+","+top+" "+target);
+				//Ignore it
+				return;
+			}
+			console.log("OnScroll "+left+","+top+" "+target);
 			//Check if we have changed
 			self.queue(MessageType.Scroll,{
 				target: target,
@@ -5882,6 +5944,16 @@ Reflector.prototype.scrollSync = function(flag)
 
 Reflector.prototype.scroll = function(left,top)
 {
+	console.log("DoScroll "+left+","+top);
+	//Check if scroll event was produced by a RemoteScroll
+	if (this.scrolling.hasOwnProperty(0) && this.scrolling[0].top===top && this.scrolling[0].left===left)
+	{
+		//Ok here it is the event
+		delete(this.scrolling[0]);
+		console.log("IgnoreOnScroll "+left+","+top+" "+0);
+		//Ignore it
+		return;
+	}
 	//Send it
 	this.queue(MessageType.Scroll,{
 		target: 0,
@@ -5906,11 +5978,15 @@ Reflector.prototype.stop = function()
 	this.canvas.close();
 	//Stop higlhlighter
 	this.highlighter.close();
-	//Clean reverses
-	this.reverse = {};
+	//Map and reverse map
 	this.map = new WeakMap();
+	this.reverse = {};
+	//The CSS child references
+	this.csschilds = {};
 	//Media rules
 	this.mediarules = {};
+	//Scrolling elements
+	this.scrolling = {};
 	//Remove listener
 	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
 	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);

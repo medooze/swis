@@ -239,19 +239,6 @@
 	
 	var first = true;
 	reflector.on("resize",function(data){
-		/*
-		//If it is first time
-		if (first)
-		{
-			//Set it once first
-			iframe.width = data.width;
-			iframe.height = data.height;
-			first = false;
-		} 
-			
-		iframe.width = data.width + (iframe.width -iframe.contentWindow.document.documentElement.clientWidth);
-		iframe.height = data.height; + (iframe.height -iframe.contentWindow.document.documentElement.clientheight);
-		*/
 	       //Set the container width
 	       container.style.width =  "400px";//(data.width + (data.height<data.scrollHeight? 8 : 0)) +"px";
 	       container.style.height = "200px";//(data.height+ (data.width <data.scrollWidth ? 8 : 0)) +"px";
@@ -259,6 +246,11 @@
 	       iframe.height = data.scrollHeight;
 	       remoteCursorContainer.style.width = data.scrollWidth;
 	       remoteCursorContainer.style.height = data.scrollHeight;
+	});
+	
+	
+	container.addEventListener("scroll",function(){
+		reflector.scroll(container.scrollLeft,container.scrollTop);
 	});
 	
 	reflector.on("scroll",function(data){
