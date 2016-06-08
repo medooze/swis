@@ -456,8 +456,21 @@ var ByteBuffer = require("./bytebuffer.js");
 
 function MessageChunkAggregator()
 {
+	//Clean
+	this.message = null;
+	this.view = null;
+	this.messageSize = 0;
+	this.messagePos = 0;
 }
 
+MessageChunkAggregator.prototype.reset = function()
+{
+	//Clean
+	this.message = null;
+	this.view = null;
+	this.messageSize = 0;
+	this.messagePos = 0;
+};
 
 MessageChunkAggregator.prototype.push = function(buffer)
 {
@@ -507,10 +520,7 @@ MessageChunkAggregator.prototype.push = function(buffer)
 				//Append to list
 				messages.push(this.message);
 				//Clean
-				this.message = null;
-				this.view = null;
-				this.messageSize = 0;
-				this.messagePos = 0;
+				this.reset();
 			}
 		}
 	}
@@ -3005,6 +3015,13 @@ MessageFactory.prototype.isEmpty = function()
 	return !this.size;
 };
 
+MessageFactory.prototype.reset = function() 
+{
+	this.parts = [];
+	this.size = 0;
+};
+
+
 MessageFactory.prototype.appendMessage = function(type,message) 
 {
 		
@@ -3072,8 +3089,8 @@ MessageFactory.prototype.appendMessage = function(type,message)
 		case MessageType.MouseMove:
 			// x: event.pageX,
 			// y: event.pageY
-			bytebuffer.writeUint16(message.x);
-			bytebuffer.writeUint16(message.y);
+			bytebuffer.writeUint16(parseInt(message.x));
+			bytebuffer.writeUint16(parseInt(message.y));
 			break;
 		case MessageType.MouseOver:
 			// target: target
@@ -3106,12 +3123,12 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// documentHeight: window.getComputedStyle(document.documentElement).height
 			// scrollWidth: document.body.scrollWidth,
 			// scrollHeight: document.body.scrollHeight
-			bytebuffer.writeUint16(message.width);
-			bytebuffer.writeUint16(message.height);
-			bytebuffer.writeUint16(message.documentWidth);
-			bytebuffer.writeUint16(message.documentHeight);
-			bytebuffer.writeUint16(message.scrollWidth);
-			bytebuffer.writeUint16(message.scrollHeight);
+			bytebuffer.writeUint16(parseInt(message.width));
+			bytebuffer.writeUint16(parseInt(message.height));
+			bytebuffer.writeUint16(parseInt(message.documentWidth));
+			bytebuffer.writeUint16(parseInt(message.documentHeight));
+			bytebuffer.writeUint16(parseInt(message.scrollWidth));
+			bytebuffer.writeUint16(parseInt(message.scrollHeight));
 			break;
 		case MessageType.Base:
 			// href: document.location.href
@@ -3188,8 +3205,8 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// top:
 			// left:
 			bytebuffer.writeVarint32(message.target);
-			bytebuffer.writeVarint32(message.top || 0);
-			bytebuffer.writeVarint32(message.left || 0);
+			bytebuffer.writeVarint32(parseInt(message.top) || 0);
+			bytebuffer.writeVarint32(parseInt(message.left) || 0);
 			break;
 		case MessageType.UpdateRequest:
 			// target: target
@@ -4437,8 +4454,8 @@ Observer.prototype.observe = function(exclude)
 	
 	document.addEventListener ("mousemove", (this.onmousemove = function (event) {
 		queue(MessageType.MouseMove,{
-			x: event.pageX,
-			y: event.pageY
+			x: event.clientX,
+			y: event.clientY
 		});
 	}),true);
 	
@@ -4617,11 +4634,9 @@ Observer.prototype.observe = function(exclude)
 		{
 			//Ok here it is the event
 			delete(self.scrolling[target]);
-			console.log("IgnoreOnScroll "+left+","+top+" "+target);
 			//Ignore it
 			return;
 		}
-		console.log("OnScroll "+left+","+top);
 		//Check if we have changed
 		queue(MessageType.Scroll,{
 			target: target,
@@ -4799,7 +4814,6 @@ Observer.prototype.observe = function(exclude)
 								break;
 							//Scrolling
 							case MessageType.Scroll:
-								console.log("ReScroll "+message.left+","+message.top+" "+message.target);
 								//Store values on scrolling element list, so we can check later and don't double-scroll
 								scrolling[message.target] = {
 									left: message.left,
@@ -4880,6 +4894,8 @@ Observer.prototype.stop = function()
 	clearTimeout (this.timer);
 	//Stop mutation observer
 	this.observer.disconnect();
+	//Clear message factory
+	this.factory.reset();
 	//SClose canvas
 	this.canvas.close();
 	//Close highlighter
@@ -4902,8 +4918,6 @@ Observer.prototype.stop = function()
 	document.removeEventListener("selectionchange", this.onselectionchange, true);
 	window.removeEventListener("resize", this.onresize , true);
 	window.removeEventListener("scroll", this.onscroll , true);
-	//Clean mirror
-	this.mirror.documentElement.remove();
 	//remove maps
 	this.map = new WeakMap();
 	this.reverse = {};
@@ -4925,55 +4939,6 @@ var SelectionHighlighter = require("./selectionhighlighter.js")
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
-
-
-
-function resolveCSSURLs(css,base) 
-{
-	var ini = 0;
-	var lower = css.toLowerCase();
-	var output = "";
-
-	//Find first url occurrence
-	var i = lower.indexOf("url(",ini);
-
-	//Replace all
-	while (i!==-1){
-		//Skip url(
-		i += "url(".length;
-		//Append to output
-		output += css.substring(ini,i);
-		//Move ini
-		ini = i;
-		//Get end
-		var j = lower.indexOf(")",ini);
-		//Get all content
-		var raw = css.substring(i,j);
-		//Get url
-		var url = raw.trim();
-		//Remove start and end "'
-		if (url.charAt(0)==='\'' || url.charAt(0)==='"')
-			//remove both ends
-			url = url.substring(1,url.length-1).trim();
-		//Check if it is a data: url
-		if (url.indexOf("data:")!==0)
-			//Create new url
-			output += new URL(url,base);
-		else
-			//Do not process it
-			output += raw;
-		//Append end of url
-		output += ")";
-		//Move end
-		ini = j+1;
-		//Find first url occurrence
-		var i = lower.indexOf("url(",ini);
-	}
-	//Copy the rest
-	output += css.substr(ini,css.length);
-	//Return rebased css
-	return output;
-}
 
 function Reflector(transport,options)
 {
@@ -5188,6 +5153,137 @@ Reflector.prototype.reflect = function(mirror,options)
 			//Get child
 			releaseElement(element.childNodes[i]);
 	}
+	
+	function importCss(target,url) {
+		//Create new style
+		var style = mirror.createElement("style");
+		//Insert before target
+		target.parentNode.insertBefore(style,target);
+
+		//Request css async
+		var req = new XMLHttpRequest();
+		//Set handlers
+		req.addEventListener("load", function(){
+			//Set css
+			style.innerHTML = resolveCSSURLs(style,url,this.responseText);
+			//Process media queries of the styles again
+			processStyles();
+		});
+		req.addEventListener("error", function(error){
+			//Print it
+			console.error(error);
+			//We have not been able to get the css, import it
+			style.src = url;
+		});
+		//Load css
+		req.open("GET", url);
+		req.send();
+	}
+
+	function processExternalImports(target,href,css) {
+		var ini = 0;
+		var lower = css.toLowerCase();
+		var output = "";
+
+		//Find first import occurrence
+		var i = lower.indexOf("@import ",ini);
+
+		//Replace all
+		while (i!==-1){
+			//Append to output and ignore @import
+			output += css.substring(ini,i);
+			//Skip it
+			i += "@import ".length;
+			
+			//Move ini
+			ini = i;
+			//Get end
+			var j = lower.indexOf(";",ini);
+			//Get end
+			var end = j;
+			//Check if there is also a media
+			var k = lower.indexOf(" ",ini);
+			//If found
+			if (k>0 && k<j)
+				//Skip it
+				j = k;
+			//Get all content
+			var raw = css.substring(i,j);
+			//Get url
+			var url = raw.trim();
+			//If it starts with url
+			if (url.toLowerCase().indexOf("url(")===0)
+				//remove both ends "url(" and ")"
+				url = url.substring("url(".length,url.length-1).trim();
+			//Remove start and end "'
+			if (url.charAt(0)==='\'' || url.charAt(0)==='"')
+				//remove both ends
+				url = url.substring(1,url.length-1).trim();
+
+			//Load external imports
+			importCss(target,new URL(url,href).toString());
+
+			//Move to end
+			ini = end+1;
+			//Find next occurrence
+			var i = lower.indexOf("@import ",ini);
+		}
+		//Copy the rest
+		output += css.substr(ini,css.length);
+		//Return rebased css
+		return output;
+	}
+
+	function resolveCSSURLs(target,href,css) 
+	{
+		//First remove external imports
+		css = processExternalImports(target,href,css);
+
+		var ini = 0;
+		var lower = css.toLowerCase();
+		var output = "";
+
+		//Find first url occurrence
+		var i = lower.indexOf("url(",ini);
+
+		//Replace all
+		while (i!==-1){
+			//Skip url(
+			i += "url(".length;
+			//Append to output
+			output += css.substring(ini,i);
+			//Move ini
+			ini = i;
+			//Get end
+			var j = lower.indexOf(")",ini);
+			//Get all content
+			var raw = css.substring(i,j);
+			//Get url
+			var url = raw.trim();
+			//Remove start and end "'
+			if (url.charAt(0)==='\'' || url.charAt(0)==='"')
+				//remove both ends
+				url = url.substring(1,url.length-1).trim();
+			//Check if it is a data: url
+			if (url.indexOf("data:")!==0)
+				//Create new url
+				output += new URL(url,href);
+			else
+				//Do not process it
+				output += raw;
+			//Append end of url
+			output += ")";
+			//Move end
+			ini = j+1;
+			//Find first url occurrence
+			var i = lower.indexOf("url(",ini);
+		}
+		//Copy the rest
+		output += css.substr(ini,css.length);
+
+		//Return rebased css
+		return output;
+	}
 
 	//Handle media queries and hover on elements
 	function processStyles() {
@@ -5333,6 +5429,8 @@ Reflector.prototype.reflect = function(mirror,options)
 		
 		//Process styles
 		processStyles();
+		//Enable selection on body (needed for webview)
+		mirror.body.style["-webkit-user-select"] = "text";
 		//Never show scrollbars
 		mirror.documentElement.style.overflow = "hidden";
 		
@@ -5340,13 +5438,13 @@ Reflector.prototype.reflect = function(mirror,options)
 		mirror.addEventListener ("mousemove",(self.onmousemove = function (event) {
 			//Send message back
 			queue(MessageType.MouseMove, {
-				x: event.pageX,
-				y: event.pageY
+				x: event.clientX,
+				y: event.clientY
 			});
 			//If we are painting
 			if (self.path)
 				//Add point
-				self.path.add(event.pageX,event.pageY);
+				self.path.add(event.clientX,event.clientY);
 		}),true);
 		//Listen selection evetns
 		mirror.addEventListener("selectionchange", (self.onselectionchange = function(e) {
@@ -5500,7 +5598,7 @@ Reflector.prototype.reflect = function(mirror,options)
 										//For each one
 										for (var i=0;i<childs.length;++i)
 											//Apply it
-											childs[i].disabled = message.value || mediaRules[childs[i].dataset["swisMediaRuleId"]].disabled;
+											childs[i].disabled = message.value || mediarules[childs[i].dataset["swisMediaRuleId"]].disabled;
 									}
 									break;
 								case MessageType.CharacterData:
@@ -5573,11 +5671,11 @@ Reflector.prototype.reflect = function(mirror,options)
 									for (var k in target.attributes)
 										//Clone in style element
 										style[k] = target[k];
-									//Set css
-									style.innerHTML = resolveCSSURLs(message.css,message.href);
-									//Replace in parent node the target by element
+									//Replace in parent node the target by new style element
 									target.parentNode.replaceChild(style,target);
-									//Set the  new element in reverse
+									//Set css
+									style.innerHTML = resolveCSSURLs(style,message.href,message.css);
+									//Set the new element in maps
 									replace(message.target,style);
 									//If it is the first CSS on this run
 									if (!timer)
@@ -5613,8 +5711,8 @@ Reflector.prototype.reflect = function(mirror,options)
 								case MessageType.Resize:
 									//console.log("Resized",message);
 									//Set document size
-									mirror.documentElement.style.width  = message.documentWidth  + "px";
-									mirror.documentElement.style.height = message.documentHeight + "px";
+									//mirror.documentElement.style.width  = message.documentWidth  + "px";
+									//mirror.documentElement.style.height = message.documentHeight + "px";
 									//Event
 									self.emit("resize",{
 										width: message.width,
@@ -5669,7 +5767,6 @@ Reflector.prototype.reflect = function(mirror,options)
 									break;
 								//Scrolling
 								case MessageType.Scroll:
-									console.log("ReScroll "+message.left+","+message.top+" "+message.target);
 									//console.log("Scroll",message);
 									//Store values on scrolling element list, so we can check later and don't double-scroll
 									scrolling[message.target] = {
@@ -5893,7 +5990,7 @@ Reflector.prototype.scrollSync = function(flag)
 			//Get target
 			var target = 0, top, left;
 			//If is is in the window
-			if (e.target!==mirror)
+			if (e.target!==self.mirror)
 			{
 				//Search elements id
 				target = self.map.get(e.target);
@@ -5914,11 +6011,9 @@ Reflector.prototype.scrollSync = function(flag)
 			{
 				//Ok here it is the event
 				delete(self.scrolling[target]);
-				console.log("IgnoreOnScroll "+left+","+top+" "+target);
 				//Ignore it
 				return;
 			}
-			console.log("OnScroll "+left+","+top+" "+target);
 			//Check if we have changed
 			self.queue(MessageType.Scroll,{
 				target: target,
@@ -5944,13 +6039,11 @@ Reflector.prototype.scrollSync = function(flag)
 
 Reflector.prototype.scroll = function(left,top)
 {
-	console.log("DoScroll "+left+","+top);
 	//Check if scroll event was produced by a RemoteScroll
 	if (this.scrolling.hasOwnProperty(0) && this.scrolling[0].top===top && this.scrolling[0].left===left)
 	{
 		//Ok here it is the event
 		delete(this.scrolling[0]);
-		console.log("IgnoreOnScroll "+left+","+top+" "+0);
 		//Ignore it
 		return;
 	}
@@ -5970,6 +6063,8 @@ Reflector.prototype.stop = function()
 		return;
 	//Clear timer (jic)
 	clearTimeout (this.timer);
+	//Clear aggregator
+	this.aggregator && this.aggregator.reset();
 	//Free recording
 	this.recorder  && this.recorder.close();
 	//Stop painting
@@ -5993,6 +6088,8 @@ Reflector.prototype.stop = function()
 	this.mirror.removeEventListener("submit",this.onsubmit,true);
 	this.mirror.defaultView.removeEventListener("scroll",this.onscroll,true);
 	this.mirror.defaultView.removeEventListener("resize",this.onresize,true);
+	//Clean mirror
+	this.mirror.documentElement.remove();
 	
 };
 
