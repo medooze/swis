@@ -3882,7 +3882,7 @@ function Observer(transport,options)
 //Inherit from event emitter
 inherits(Observer, EventEmitter);
 
-Observer.prototype.observe = function(exclude)
+Observer.prototype.observe = function(exclude,wnd,href)
 {
 	//Load objects from this
 	var self = this;
@@ -3894,6 +3894,11 @@ Observer.prototype.observe = function(exclude)
 	
 	var maxId=1;
 	var doctype = "";
+	
+	//Store observed window && document
+	this.wnd = wnd || window;
+	this.document = this.wnd.document;
+	this.baseURL = href || this.document.location.href;
 	
 	//POstponed messasges
 	var postponed = [];
@@ -3977,9 +3982,9 @@ Observer.prototype.observe = function(exclude)
 	function getExternalStyle(id,href){
 		
 		//Get base absolute url
-		var absolute = document.location.href;
+		var absolute = self.baseURL;
 		//Check if there is a BASE element in the document
-		var base = document.querySelector("base");
+		var base = self.document.querySelector("base");
 		//If we have to rebase the absolue url
 		if (base)
 			//Get absolute path from BASE  href attributte
@@ -4083,7 +4088,7 @@ Observer.prototype.observe = function(exclude)
 		if (element.nodeName==="SCRIPT")
 		{
 			//Create empty script
-			cloned = document.createElement("script");
+			cloned = self.document.createElement("script");
 		//Emmbed css
 		} else if (element.nodeName==="LINK" && (element.getAttribute("rel") || "").toLowerCase()==="stylesheet") {
 			//Clone element
@@ -4110,7 +4115,7 @@ Observer.prototype.observe = function(exclude)
 			//Change BASE href
 			} else if (cloned.nodeName==="BASE")
 				//Change href
-				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),document.location.href).toString());
+				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),self.baseURL).toString());
 			else if (cloned.nodeName==="INPUT")
 				//Remove autocomplete
 				cloned.setAttribute("autocomplete","off");
@@ -4270,7 +4275,7 @@ Observer.prototype.observe = function(exclude)
 	}
 	
 	//Clone DOM
-	var cloned = clone(document,exclude);
+	var cloned = clone(self.document,exclude);
 	
 	//Check if there is a BASE element in the document
 	if (!cloned.querySelector("base"))
@@ -4278,7 +4283,7 @@ Observer.prototype.observe = function(exclude)
 		//Craete base element
 		var base = cloned.createElement("base");
 		//Set href to documenbt location
-		base.setAttribute("href",document.location.href);
+		base.setAttribute("href",self.baseURL);
 		//Set href to documenbt location
 		base.setAttribute("swis", true);
 		//Append to head in the cloned doc
@@ -4294,7 +4299,7 @@ Observer.prototype.observe = function(exclude)
 	
 	//Set initial HTML message
 	queue(MessageType.HTML,{
-		href: document.location.href,
+		href: self.baseURL,
 		html: html
 	});
 	
@@ -4392,7 +4397,7 @@ Observer.prototype.observe = function(exclude)
 						handled[target] = {};
 					}
 					//Check if we are updating the stile body
-					if (target===document.body && mutation.attributeName==="style")
+					if (target===self.document.body && mutation.attributeName==="style")
 						//We may have been resized
 						resized = true;
 						
@@ -4420,18 +4425,18 @@ Observer.prototype.observe = function(exclude)
 		{
 			//Check if we have changed
 			queue(MessageType.Resize,{
-				width: window.innerWidth,
-				height: window.innerHeight,
-				documentWidth: parseInt(window.getComputedStyle(document.documentElement).width),
-				documentHeight: parseInt(window.getComputedStyle(document.documentElement).height),
-				scrollWidth: document.body.scrollWidth,
-				scrollHeight: document.body.scrollHeight
+				width: self.wnd.innerWidth,
+				height: self.wnd.innerHeight,
+				documentWidth: parseInt(self.wnd.getComputedStyle(self.document.documentElement).width),
+				documentHeight: parseInt(self.wnd.getComputedStyle(self.document.documentElement).height),
+				scrollWidth: self.document.body.scrollWidth,
+				scrollHeight: self.document.body.scrollHeight
 			});
 			//Send initial scroll
 			queue(MessageType.Scroll,{
 				target: 0,
-				top: window.scrollY,
-				left: window.scrollX
+				top: self.wnd.scrollY,
+				left: self.wnd.scrollX
 			});
 		}
 		//Flush
@@ -4445,21 +4450,21 @@ Observer.prototype.observe = function(exclude)
 	});
 
 	// pass in the target node, as well as the observer options
-	this.observer.observe (document, {
+	this.observer.observe (self.document, {
 		attributes: true,
 		childList: true,
 		characterData: true,
 		subtree: true
 	});
 	
-	document.addEventListener ("mousemove", (this.onmousemove = function (event) {
+	self.document.addEventListener ("mousemove", (this.onmousemove = function (event) {
 		queue(MessageType.MouseMove,{
 			x: event.clientX,
 			y: event.clientY
 		});
 	}),true);
 	
-	document.addEventListener ("mouseup", (this.mouseup = function (event) {
+	self.document.addEventListener ("mouseup", (this.mouseup = function (event) {
 		//HACK: resize in textarea does not trigger DOM mutation event in chrome
 		if (event.target.nodeName==="TEXTAREA")
 		{
@@ -4476,7 +4481,7 @@ Observer.prototype.observe = function(exclude)
 	}),true);
 
 	var hovered;
-	document.addEventListener("mouseover", (this.onmouseover = function(e){
+	self.document.addEventListener("mouseover", (this.onmouseover = function(e){
 		//Check if we have changed
 		if (hovered!==e.target)
 		{
@@ -4496,10 +4501,10 @@ Observer.prototype.observe = function(exclude)
 		}
 	}),true);
 
-	document.addEventListener("focus", (this.onfocus = function(e){
+	self.document.addEventListener("focus", (this.onfocus = function(e){
 		//Firefox launches blur on document
 		//which is not liked by chrome
-		if (e.target===document)
+		if (e.target===self.document)
 			//Ignore it then
 			return;
 		//Check if we have changed
@@ -4508,10 +4513,10 @@ Observer.prototype.observe = function(exclude)
 		});
 	}),true);
 
-	document.addEventListener("blur", (this.onblur = function(e){
+	self.document.addEventListener("blur", (this.onblur = function(e){
 		//Firefox launches blur on document
 		//which is not liked by chrome
-		if (e.target===document)
+		if (e.target===self.document)
 			//Ignore it then
 			return;
 		//Check if we have changed
@@ -4520,7 +4525,7 @@ Observer.prototype.observe = function(exclude)
 		});
 	}),true);
 
-	document.addEventListener("input", (this.oninput = function(e){
+	self.document.addEventListener("input", (this.oninput = function(e){
 		//Check if we have changed
 		queue(MessageType.Input,{
 			target: map.get(e.target),
@@ -4528,7 +4533,7 @@ Observer.prototype.observe = function(exclude)
 		});
 	}),true);
 	
-	document.addEventListener("change", (this.onchange = function(e){
+	self.document.addEventListener("change", (this.onchange = function(e){
 		//Get id
 		var id = map.get(e.target);
 		//If not tracked
@@ -4589,11 +4594,11 @@ Observer.prototype.observe = function(exclude)
 	}
 	
 	//Prefill all input values
-	fillInputs(document);
+	fillInputs(self.document);
 
-	document.addEventListener("selectionchange", (this.onselectionchange = function(e) {
+	self.document.addEventListener("selectionchange", (this.onselectionchange = function(e) {
 		//Get selection
-		var selection = document.getSelection();
+		var selection = self.document.getSelection();
 		//Get range
 		var range = selection.rangeCount===1 ? selection.getRangeAt(0) : null;
 		//Check if we have changed
@@ -4609,11 +4614,11 @@ Observer.prototype.observe = function(exclude)
 	}), true);
 
 	
-	window.addEventListener("scroll", (this.onscroll = function(e){
+	self.wnd.addEventListener("scroll", (this.onscroll = function(e){
 		//Get target
 		var target = 0, top, left;
 		//If is is in the window
-		if (e.target!==document)
+		if (e.target!==self.document)
 		{
 			//Search elements id
 			target = map.get(e.target);
@@ -4626,8 +4631,8 @@ Observer.prototype.observe = function(exclude)
 			left = e.target.scrollLeft;
 		} else {
 			//Get it from window
-			top  = window.scrollY;
-			left = window.scrollX; 
+			top  = self.wnd.scrollY;
+			left = self.wnd.scrollX; 
 		}
 		//Check if scroll event was produced by a RemoteScroll
 		if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
@@ -4648,21 +4653,21 @@ Observer.prototype.observe = function(exclude)
 		self.highlighter && self.highlighter.redraw();
 	}),true);
 	
-	window.addEventListener("resize", (this.onresize = function(e){
+	self.wnd.addEventListener("resize", (this.onresize = function(e){
 		//Check if we have changed
 		queue(MessageType.Resize,{
-			width: window.innerWidth,
-			height: window.innerHeight,
-			documentWidth: parseInt(window.getComputedStyle(document.documentElement).width),
-			documentHeight: parseInt(window.getComputedStyle(document.documentElement).height),
-			scrollWidth: document.body.scrollWidth,
-			scrollHeight: document.body.scrollHeight
+			width: self.wnd.innerWidth,
+			height: self.wnd.innerHeight,
+			documentWidth: parseInt(self.wnd.getComputedStyle(self.document.documentElement).width),
+			documentHeight: parseInt(self.wnd.getComputedStyle(self.document.documentElement).height),
+			scrollWidth: self.document.body.scrollWidth,
+			scrollHeight: self.document.body.scrollHeight
 		});
 		//Send initial scroll
 		queue(MessageType.Scroll,{
 			target: 0,
-			top: window.scrollY,
-			left: window.scrollX
+			top: self.wnd.scrollY,
+			left: self.wnd.scrollX
 		});
 		//Redraw canvas
 		self.canvas && self.canvas.resize();
@@ -4672,19 +4677,19 @@ Observer.prototype.observe = function(exclude)
 	
 	//Send initial size
 	queue(MessageType.Resize,{
-		width: window.innerWidth,
-		height: window.innerHeight,
-		documentWidth: parseInt(window.getComputedStyle(document.documentElement).width),
-		documentHeight: parseInt(window.getComputedStyle(document.documentElement).height),
-		scrollWidth: document.body.scrollWidth,
-		scrollHeight: document.body.scrollHeight
+		width: self.wnd.innerWidth,
+		height: self.wnd.innerHeight,
+		documentWidth: parseInt(self.wnd.getComputedStyle(self.document.documentElement).width),
+		documentHeight: parseInt(self.wnd.getComputedStyle(self.document.documentElement).height),
+		scrollWidth: self.document.body.scrollWidth,
+		scrollHeight: self.document.body.scrollHeight
 	});
 	
 	//Send initial scroll
 	queue(MessageType.Scroll,{
 		target: 0,
-		top: window.scrollY,
-		left: window.scrollX
+		top: self.wnd.scrollY,
+		left: self.wnd.scrollX
 	});
 		
 	//Listener for media query changes
@@ -4746,7 +4751,7 @@ Observer.prototype.observe = function(exclude)
 								for (var k in message.queries)
 								{
 									//Create media query
-									var mql = window.matchMedia(message.queries[k]);
+									var mql = self.wnd.matchMedia(message.queries[k]);
 									//Set id
 									mql.id = k;
 									//If it is matched
@@ -4810,7 +4815,7 @@ Observer.prototype.observe = function(exclude)
 								self.canvas.clear();
 								self.highlighter.clear();
 								//Delete local selection also
-								document.getSelection().removeAllRanges();
+								self.document.getSelection().removeAllRanges();
 								break;
 							//Scrolling
 							case MessageType.Scroll:
@@ -4823,7 +4828,7 @@ Observer.prototype.observe = function(exclude)
 								if (!message.target)
 								{
 									//Scroll document
-									window.scrollTo(message.left,message.top);
+									self.wnd.scrollTo(message.left,message.top);
 								} else {
 									//Get target
 									var target = reverse[message.target];
@@ -4842,7 +4847,7 @@ Observer.prototype.observe = function(exclude)
 								if (!target)
 								{	
 									//Retarget to whole body
-									target = document.body;
+									target = self.document.body;
 									id = reverse[target];
 								}
 								//Delete element referencesl
@@ -4862,8 +4867,8 @@ Observer.prototype.observe = function(exclude)
 								//Update scroll after request (JIC)
 								queue(MessageType.Scroll,{
 									target: 0,
-									top: window.scrollY,
-									left: window.scrollX
+									top: self.wnd.scrollY,
+									left: self.wnd.scrollX
 								});
 								break;
 							default:
@@ -4877,9 +4882,9 @@ Observer.prototype.observe = function(exclude)
 		}
 	};
 	//Create canvas
-	this.canvas = new Canvas(document);
+	this.canvas = new Canvas(self.document);
 	//Create seleciton hihglighter
-	this.highlighter = new SelectionHighlighter(document);
+	this.highlighter = new SelectionHighlighter(self.document);
 	//We are inited
 	this.inited = true;
 };
@@ -4908,22 +4913,24 @@ Observer.prototype.stop = function()
 		this.mediaqueries[i].removeListener(this.mediaQueryListener);
 	
 	//Remove DOM event listeners
-	document.removeEventListener("mouseup", this.mouseup ,true);
-	document.removeEventListener("mousemove", this.onmousemove ,true);
-	document.removeEventListener("mouseover", this.onmouseover, true);
-	document.removeEventListener("focus", this.onfocus, true);
-	document.removeEventListener("blur", this.onblur, true);
-	document.removeEventListener("input", this.oninput, true);
-	document.removeEventListener("change", this.onchange, true);
-	document.removeEventListener("selectionchange", this.onselectionchange, true);
-	window.removeEventListener("resize", this.onresize , true);
-	window.removeEventListener("scroll", this.onscroll , true);
+	this.document.removeEventListener("mouseup", this.mouseup ,true);
+	this.document.removeEventListener("mousemove", this.onmousemove ,true);
+	this.document.removeEventListener("mouseover", this.onmouseover, true);
+	this.document.removeEventListener("focus", this.onfocus, true);
+	this.document.removeEventListener("blur", this.onblur, true);
+	this.document.removeEventListener("input", this.oninput, true);
+	this.document.removeEventListener("change", this.onchange, true);
+	this.document.removeEventListener("selectionchange", this.onselectionchange, true);
+	this.wnd.removeEventListener("resize", this.onresize , true);
+	this.wnd.removeEventListener("scroll", this.onscroll , true);
 	//remove maps
 	this.map = new WeakMap();
 	this.reverse = {};
 	this.factory =  new MessageFactory(); 
 	this.mediaqueries = [];
 	this.scrolling = {};
+	this.document = null;
+	this.wnd = null;
 };
 
 module.exports = Observer;

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<style>
+			html,body {
+				margin: 0px;
+				padding: 0px;
+				width:100%;
+				height: 100%;
+				overflow: hidden;
+			}
+			iframe {
+				width:100%;
+				height: 100%;
+				border: 0px;
+				overflow: auto;
+			}
+		</style>
+	</head>
+	<body>
+		<iframe id=presenterFrame name="presenter"></iframe>
+	</body>
+ 
+</html>
+<script src="swis.js"></script>
+<script>
+	
+
+	var transport = {
+		send : function(data) {
+			//Convert to json and send
+			wnd.postMessage(data, "*");
+		}
+	};
+	
+	var wnd = window.open("viewer.html","viewer","width=400px");
+	var observer = new swis.Observer(transport,{chunk:200});
+	
+	
+	
+	window.addEventListener("message",function(message){
+		transport.onmessage(message.data);
+	});	
+
+	var remoteCursor;
+	observer.on("remotecursormove",function(data){
+		//Check if first cursor
+		if (!remoteCursor)
+		{
+			//Create new element
+			remoteCursor = document.createElement("div");
+			//Set class
+			remoteCursor.className = "remote-cursor";
+			//Insert into
+			document.querySelector('.remote-cursor-container').appendChild(remoteCursor);
+		}
+		//Set new position
+		remoteCursor.style["left"] = (data.x-20) + "px";
+		remoteCursor.style["top"] =  (data.y-15) + "px";
+	});
+	
+	
+	//Request css async
+	var req = new XMLHttpRequest();
+	//Set handlers
+	req.addEventListener("load", function(){
+		//Check if we have changed
+		queue(MessageType.CSS,{
+			target	: id,
+			href	: url,
+			css	: this.responseText
+		});
+	});
+	req.addEventListener("error", function(error){
+		//Errors may be launched while not finished processinng html, send on next tick
+		setTimeout(function(){
+			//We have not been able to get the css, import it
+			queue(MessageType.Link,{
+				target	: id,
+				href	: url
+			});
+		},0);
+	});
+	var url = "https://www.bentleyconfigurator.com/v2/BentleyConfiguratorWeb.asp?lModelID=227";
+
+	//Request css async
+	var req = new XMLHttpRequest();
+	//Set handlers
+	req.addEventListener("load", function(){
+	
+		presenterFrame.srcdoc = "<base href='"+url+"'/>" + this.responseText;
+		presenter.document.addEventListener("ready",function(){
+			observer.observe("[data-exclude]",window.frames['presenter'],url);
+		});
+	});
+		
+	//Load css
+	req.open("GET", url);
+	req.send();
+		
+		
+
+	
+</script>
