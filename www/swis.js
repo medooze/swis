@@ -5405,6 +5405,28 @@ Reflector.prototype.reflect = function(mirror,options)
 			var childs = [];
 			//Set child list
 			csschilds[id] = childs;
+			//Check if it has a media query itself
+			if (stylesheet.media.length>0)
+			{
+				//Get id for this top media rule
+				var mediaRuleId = maxMediaRuleId++;
+				//Append media query
+				mediarules[mediaRuleId] = {
+					element: parent,
+					parent : parent,
+					disabled : true,
+					media: stylesheet.media.mediaText
+				};
+				//request update
+				queries[mediaRuleId] = stylesheet.media.mediaText;
+				//Set media rule id on element
+				parent.dataset["swisMediaRuleId"] = mediaRuleId;
+				parent.dataset["swisMediaRuleText"] = stylesheet.media.mediaText;
+				//Disable it
+				parent.disabled = true;
+				//Remove in style element
+				parent.media = "";
+			}
 			//To keep order we need to add the rules 
 			var remaining = "";
 			//No need to keep order yet
@@ -5722,12 +5744,14 @@ Reflector.prototype.reflect = function(mirror,options)
 									//If we are disabling a css style
 									if (message.key === "disabled" && target.nodeName === "STYLE")
 									{
+										//Is style disabled?
+										var disabled =  message.value;
 										//Get childs (if any)
 										var childs = csschilds[message.target];
 										//For each one
 										for (var i=0;i<childs.length;++i)
 											//Apply it
-											childs[i].disabled = message.value || mediarules[childs[i].dataset["swisMediaRuleId"]].disabled;
+											childs[i].disabled = disabled || mediarules[childs[i].dataset["swisMediaRuleId"]].disabled;
 									}
 									break;
 								case MessageType.CharacterData:
@@ -5797,9 +5821,11 @@ Reflector.prototype.reflect = function(mirror,options)
 									//Create new style
 									var style = mirror.createElement("style");
 									//Set all attributes
-									for (var k in target.attributes)
-										//Clone in style element
-										style[k] = target[k];
+									for (var k=0; k<target.attributes.length;k++)
+										//Ignore rel attribute
+										if (target.attributes[k].name!=="rel")
+											//Clone in style element
+											style.setAttribute(target.attributes[k].name,target.attributes[k].value);
 									//Replace in parent node the target by new style element
 									target.parentNode.replaceChild(style,target);
 									//Set css
@@ -5834,6 +5860,20 @@ Reflector.prototype.reflect = function(mirror,options)
 											mediarules[id].element.disabled = !message.matches[id];
 										//Store value on media rule
 										mediarules[id].disabled = !message.matches[id];
+										//If we are disabling a top style
+										if (mediarules[id].element === mediarules[id].parent)
+										{
+											//Get target
+											var target = map.get(mediarules[id].element);
+											//Is top style disabled?
+											var disabled =  mediarules[id].disabled;
+											//Get childs (if any)
+											var childs = csschilds[target];
+											//For each one
+											for (var i=0;i<childs.length;++i)
+												//Apply it
+												childs[i].disabled = disabled || mediarules[childs[i].dataset["swisMediaRuleId"]].disabled;
+										}
 									}
 									break;
 								//Resized
@@ -6062,7 +6102,7 @@ Reflector.prototype.paint = function(flag)
 		for (var i=0;i<iframes.length;i++)
 		{
 			//Listen mouse down events
-			iframes[i].contentDocument.mirror.addEventListener("mousedown",this.onmousedown,true);
+			iframes[i].contentDocument.addEventListener("mousedown",this.onmousedown,true);
 			iframes[i].contentDocument.addEventListener("mouseleave",this.onmouseup,true);
 			iframes[i].contentDocument.addEventListener("mouseup",this.onmouseup,true);
 		}
