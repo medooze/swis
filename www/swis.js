@@ -2994,6 +2994,8 @@ function getSize(obj)
 		for (var i=0;i<obj.length;++i)
 			length += getSize(obj[i])+1;
 		return length;
+	} else if (obj instanceof ArrayBuffer) {
+		return obj.byteLength;
 	} else if (typeof obj === "object") {
 		var length = 0;
 		for (var k in obj)
@@ -3053,6 +3055,16 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			var compressed = pako.deflate(message.html);
 			bytebuffer.writeVarint32(compressed.length);
 			bytebuffer.writeBytes(compressed);
+			break;
+		case MessageType.Image:
+			// target 
+			// type: "image/png"
+			// image: [binary]
+			bytebuffer.writeVarint32(message.target);
+			bytebuffer.writeVString(message.type);
+			//Binary image
+			bytebuffer.writeVarint32(message.image.byteLength);
+			bytebuffer.writeBytes(message.image);
 			break;
 		case MessageType.ChildList:
 			// target: target,
@@ -3404,6 +3416,14 @@ MessageParser.prototype.next = function()
 			message.target	= bytebuffer.readVarint32();
 			message.href	= bytebuffer.readVString();
 			message.html	= pako.inflate( bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer(), { to: 'string' });
+			break;
+		case MessageType.Image:
+			// target 
+			// type: "image/png"
+			// image: [binary]
+			message.target	= bytebuffer.readVarint32();
+			message.type	= bytebuffer.readVString();
+			message.image	= bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer();
 			break;
 		case MessageType.ChildList:
 			// target: target,
@@ -3840,6 +3860,7 @@ module.exports = Type;
 module.exports = [
 	"HTML",
 	"IFrame",
+	"Image",
 	"ChildList",
 	"Attributes",
 	"CharacterData",
@@ -3904,6 +3925,7 @@ inherits(Observer, EventEmitter);
 
 Observer.prototype.observe = function(exclude,wnd,href)
 {
+	var sendImages = true;
 	//Load objects from this
 	var self = this;
 	var transport = this.transport;
@@ -4037,6 +4059,35 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		req.send();
 	}
 	
+	function getExternalImage(id,href) {
+		//Get base absolute url
+		var absolute = self.baseURL;
+		//Check if there is a BASE element in the document
+		var base = self.document.querySelector("base");
+		//If we have to rebase the absolue url
+		if (base)
+			//Get absolute path from BASE  href attributte
+			absolute = new URL(base.getAttribute("href"),absolute).toString();
+		//Get absolute path from document location
+		var url = new URL(href,absolute).toString();
+		//Request css async
+		var req = new XMLHttpRequest();
+		//Set handlers
+		req.responseType = "arraybuffer";
+		req.addEventListener("load", function(){
+			//Check if we have changed
+			queue(MessageType.Image,{
+				target		: id,
+				type		: this.getResponseHeader('content-type'),
+				image		: this.response
+			});
+		});
+		
+		//Load css
+		req.open("GET", url);
+		req.send();
+	}
+	
 	function matches(node,selector) {
 		if (node.matches)	return node.matches(selector);
 		if (node.msmatches)	return node.msmatches(selector);
@@ -4068,6 +4119,35 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			//return it
 			return message;
 		});
+	}
+	
+	function sendImageInline(id,img) {
+		try {
+			//Create an empty canvas element
+			var canvas = document.createElement("canvas");
+			//Set same size as image
+			canvas.width = img.width;
+			canvas.height = img.height;
+
+			// Copy the image contents to the canvas
+			var ctx = canvas.getContext("2d");
+			ctx.drawImage(img, 0, 0);
+
+			//Get binary 
+			Utils.canvasToArrayBuffer(canvas,function(buffer){
+			       //Send it after current message, jic
+			       postpone(MessageType.Image,{
+				       target		: id,
+				       type		: "image/png",
+				       image		: buffer
+			       });
+		       },"image/png");
+	       } catch (e) {
+		       //OK reload it instead
+		       getExternalImage(id,img.src);
+	       }
+		
+		
 	}
 	
 	function processIFrame(id,element) {
@@ -4188,6 +4268,22 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			if (cloned.nodeName==="A")
 				//Remove HREF from anchors
 				cloned.removeAttribute("href");
+			//If we are sending the imgs inline
+			else if (cloned.nodeName==="IMG" && sendImages)
+			{
+				//Remove src
+				cloned.removeAttribute("src");
+				
+				//If img is loaded 
+				if (element.complete)
+					//Send it now
+					sendImageInline(id,element);
+				else 
+					//Send it when loaded
+					element.onload = function(){
+						sendImageInline(id,element);
+					};
+			}
 			//Remove HREF from anchors
 			else if (cloned.nodeName==="IFRAME")
 			{
@@ -5400,6 +5496,7 @@ Reflector.prototype.reflect = function(mirror,options)
 				//Skipt this one
 				continue;
 			//Get parent node and next
+			var owner = stylesheet.ownerNode;
 			var parent = stylesheet.ownerNode.parentNode;
 			var next = stylesheet.ownerNode.nextSibling;
 			var childs = [];
@@ -5412,20 +5509,20 @@ Reflector.prototype.reflect = function(mirror,options)
 				var mediaRuleId = maxMediaRuleId++;
 				//Append media query
 				mediarules[mediaRuleId] = {
-					element: parent,
-					parent : parent,
+					owner: owner,
+					element: owner,
 					disabled : true,
 					media: stylesheet.media.mediaText
 				};
 				//request update
 				queries[mediaRuleId] = stylesheet.media.mediaText;
 				//Set media rule id on element
-				parent.dataset["swisMediaRuleId"] = mediaRuleId;
-				parent.dataset["swisMediaRuleText"] = stylesheet.media.mediaText;
+				owner.dataset["swisMediaRuleId"] = mediaRuleId;
+				owner.dataset["swisMediaRuleText"] = stylesheet.media.mediaText;
 				//Disable it
-				parent.disabled = true;
+				owner.disabled = true;
 				//Remove in style element
-				parent.media = "";
+				owner.media = "";
 			}
 			//To keep order we need to add the rules 
 			var remaining = "";
@@ -5474,7 +5571,7 @@ Reflector.prototype.reflect = function(mirror,options)
 					//Append media query
 					mediarules[mediaRuleId] = {
 						element: el,
-						parent : parent,
+						owner : owner,
 						disabled : true,
 						media: rules[i].media.mediaText
 					};
@@ -5691,6 +5788,20 @@ Reflector.prototype.reflect = function(mirror,options)
 									//Init
 									initIFrame(target,message.href,message.html);
 									break;
+								case MessageType.Image:
+									//console.log("Image",message);
+									//Get target
+									var target = reverse[message.target];
+									//Create blob
+									var blob = new Blob([message.image],{type: message.type});
+									//release it on load
+									target.onload = function(){
+										URL.revokeObjectURL(this.src)
+									};
+									//Set it
+									target.src = URL.createObjectURL(blob);
+									
+									break;
 								case MessageType.ChildList:
 									//console.log("ChildList",message);
 									//Get target
@@ -5855,13 +5966,13 @@ Reflector.prototype.reflect = function(mirror,options)
 									for (var id in message.matches)
 									{
 										//Ensure that the original style element for the element is not disabled
-										if (!mediarules[id].parent.disabled)
+										if (!mediarules[id].owner.disabled)
 											//Enable/disable associated element
 											mediarules[id].element.disabled = !message.matches[id];
 										//Store value on media rule
 										mediarules[id].disabled = !message.matches[id];
 										//If we are disabling a top style
-										if (mediarules[id].element === mediarules[id].parent)
+										if (mediarules[id].element === mediarules[id].owner)
 										{
 											//Get target
 											var target = map.get(mediarules[id].element);
@@ -6365,6 +6476,36 @@ SelectionHighlighter.prototype.close = function()
 
 module.exports = SelectionHighlighter;
 },{"./utils.js":15}],15:[function(require,module,exports){
+
+function canvasToArrayBuffer(canvas,callback, type, quality)
+{
+	if (!canvas.toBlob) 
+	{
+		//Use toDataURL instead
+		var binStr = atob( canvas.toDataURL(type, quality).split(',')[1] ),
+		   len = binStr.length,
+		   arr = new Uint8Array(len);
+		//Get binary data
+		for (var i=0; i<len; i++ ) 
+			arr[i] = binStr.charCodeAt(i);
+		//Call callback
+		callback(arr);
+	} else {
+		
+		//Call it
+		canvas.toBlob(function(blob){
+			//Create readerr
+			var fileReader = new FileReader();
+			fileReader.onload = function() {
+			    //Call callback
+			    callback(this.result);
+			};
+			//Read as array
+			fileReader.readAsArrayBuffer(blob);
+		},type,quality);
+	}
+}
+
 function getCommonAncestors(ancestorsA,ancestorsB)
 {
 	//Iterate in reverse order
@@ -6563,7 +6704,8 @@ module.exports = {
 	getSelectionClientRects: getSelectionClientRects,
 	getAncestors : getAncestors,
 	getCommonAncestors: getCommonAncestors,
-	createElementFromHTML: createElementFromHTML
+	createElementFromHTML: createElementFromHTML,
+	canvasToArrayBuffer: canvasToArrayBuffer
 };
 },{}],16:[function(require,module,exports){
 if (typeof Object.create === 'function') {
