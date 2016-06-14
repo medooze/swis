@@ -3043,6 +3043,17 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			bytebuffer.writeVarint32(compressed.length);
 			bytebuffer.writeBytes(compressed);
 			break;
+		case MessageType.IFrame:
+			// target 
+			// href: document.location.href
+			// html: [compressed]
+			bytebuffer.writeVarint32(message.target);
+			bytebuffer.writeVString(message.href);
+			//Compress html
+			var compressed = pako.deflate(message.html);
+			bytebuffer.writeVarint32(compressed.length);
+			bytebuffer.writeBytes(compressed);
+			break;
 		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
@@ -3383,6 +3394,14 @@ MessageParser.prototype.next = function()
 		case MessageType.HTML:
 			// href: document.location.href
 			// html: [compressed]
+			message.href	= bytebuffer.readVString();
+			message.html	= pako.inflate( bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer(), { to: 'string' });
+			break;
+		case MessageType.IFrame:
+			// target: iframe element,
+			// href: document.location.href
+			// html: [compressed]
+			message.target	= bytebuffer.readVarint32();
 			message.href	= bytebuffer.readVString();
 			message.html	= pako.inflate( bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer(), { to: 'string' });
 			break;
@@ -3820,6 +3839,7 @@ module.exports = Type;
 // Observer -> Reflector messages
 module.exports = [
 	"HTML",
+	"IFrame",
 	"ChildList",
 	"Attributes",
 	"CharacterData",
@@ -4050,6 +4070,72 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		});
 	}
 	
+	function processIFrame(id,element) {
+		//Try to get window andd document
+		var wnd = element.contentWindow;
+		var doc = element.contentDocument;
+		
+		//Attach also to window so we can send targeted events
+		attach(wnd);
+		
+		//Clone DOM
+		var cloned = clone(doc,exclude);
+
+		//Check if there is a BASE element in the document
+		if (!cloned.querySelector("base"))
+		{
+			//Craete base element
+			var base = cloned.createElement("base");
+			//Set href to documenbt location
+			base.setAttribute("href",self.baseURL);
+			//Set href to documenbt location
+			base.setAttribute("swis", true);
+			//Append to head in the cloned doc
+			cloned.querySelector("head").appendChild(base);
+		}
+
+		//Start with the doctype
+		var html = doctype;
+		//For each node of the document
+		for (var i=0;i<cloned.childNodes.length;i++)
+			//Append HTML for child node
+			html += getHTML(cloned.childNodes[i]);
+
+		//Set initial HTML message
+		queue(MessageType.IFrame,{
+			target: id,
+			href: doc.location.href,
+			html: html
+		});
+
+		//Send inmediatelly
+		flush();
+		
+		//Listen for changes
+		var observer = new MutationObserver (mutator);
+
+		// pass in the target node, as well as the observer options
+		observer.observe (doc, {
+			attributes: true,
+			childList: true,
+			characterData: true,
+			subtree: true
+		});
+		
+		//Add iframe event listeners
+		doc.addEventListener ("mousemove", self.onmousemove,true);
+	}
+	
+	function attach(element) {
+		//Generate new id
+		var id = maxId++;
+		//Add element to maps
+		map.set(element,id);
+		reverse[id] = element;
+		//Return id
+		return id;
+	}
+	
 	function clone(element,exclude){
 		var cloned;
 		
@@ -4079,10 +4165,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			return null;
 		
 		//Gen new id
-		var id = maxId++;
-		//Add element to maps
-		map.set(element,id);
-		reverse[id] = element;
+		var id = attach(element);
 		
 		//Replace scripts
 		if (element.nodeName==="SCRIPT")
@@ -4112,6 +4195,10 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				cloned.removeAttribute("src");
 				//And Remove srcdoc
 				cloned.removeAttribute("srcdoc");
+				//Try to add it async
+				setTimeout(function(){
+					processIFrame(id,element);
+				},0);
 			//Change BASE href
 			} else if (cloned.nodeName==="BASE")
 				//Change href
@@ -4158,52 +4245,46 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					//Clear nodes
 					texts = [];
 					previousId = childId;
-				}
-				
 				//Check if child node is text and it is empty or previous was a text node also
-				if ( child.nodeName ==="#text" && 
-				    ( (last && last.nodeName==="#text") || !child.textContent.length )
-				 )
-				{
-					//Appand for creating them async
+				} else if ( child.nodeName ==="#text" && ((last && last.nodeName==="#text") || !child.textContent.length )) {
+					//Append for creating them async
 					texts.push(child);
-					//And skip it
-					continue;
-				}
+				//Normal child
+				} else {
+					//Clone child
+					var clonedChild = clone(child,exclude);
+					//If we have to handle
+					if (clonedChild)
+					{
+						//Get new id
+						childId = map.get(child);
+						//We are last
+						last = child;
+						//Append to cloned element
+						cloned.appendChild(clonedChild);
 
-				//Clone child
-				var clonedChild = clone(child,exclude);
-				//If we have to handle
-				if (clonedChild)
-				{
-					//Get new id
-					childId = map.get(child);
-					//We are last
-					last = child;
-					//Append to cloned element
-					cloned.appendChild(clonedChild);
-					
-					//We process text and existing nodes now as we need the id of the next sibling (i.e this child)
-				
-					//If it was a pending text nodes
-					if (texts.length)
-						//Create them async
-						createTextNodesAsync(id,previousId,childId,texts);
-					
-					//If there was a previously existing node			
-					if (existing)
-						//Push message to the queue after next queue
-						postpone(MessageType.ChildList,{
-							target		: id,
-							previous	: previousId,
-							next		: childId,
-							added		: [existing],
-							deleted		: []
-						});
-					//Clear nodes
-					existing = null;
-					texts = [];
-					previousId = childId;
+						//We process text and existing nodes now as we need the id of the next sibling (i.e this child)
+
+						//If it was a pending text nodes
+						if (texts.length)
+							//Create them async
+							createTextNodesAsync(id,previousId,childId,texts);
+
+						//If there was a previously existing node			
+						if (existing)
+							//Push message to the queue after next queue
+							postpone(MessageType.ChildList,{
+								target		: id,
+								previous	: previousId,
+								next		: childId,
+								added		: [existing],
+								deleted		: []
+							});
+						//Clear nodes
+						existing = null;
+						texts = [];
+						previousId = childId;
+					}
 				}
 			}
 			
@@ -4306,8 +4387,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	//Send inmediatelly
 	flush();
 		
-	//Listen for changes
-	this.observer = new MutationObserver (function (mutations) {
+	function mutator(mutations) {
 		var handled = {};
 		var deleted = {};
 		var resized = false;
@@ -4333,7 +4413,25 @@ Observer.prototype.observe = function(exclude,wnd,href)
 						added		: [],
 						deleted		: []
 					};
-
+					
+					//Process the removed nodes
+					for (var i=0;i<mutation.removedNodes.length;i++)
+					{
+						//Get id for added node
+						var id = map.get(mutation.removedNodes[i]);
+						//console.log("removed "+id,mutation.removedNodes[i],mutation.removedNodes[i].parentNode);
+						//If element was tracked
+						if (id)
+						{
+							//Put reference
+							message.deleted.push(id);
+							//Check if it has been inserted again
+							if (!mutation.removedNodes[i].parentNode)
+								//Add to GC list
+								deleted[id] = mutation.removedNodes[i];
+						}
+							
+					}
 					//Process the added nodes
 					for (var i=0;i<mutation.addedNodes.length;i++)
 					{
@@ -4362,24 +4460,6 @@ Observer.prototype.observe = function(exclude,wnd,href)
 							//Remove from deleted (jic)
 							delete(deleted[id]);
 						}
-					}
-					//Process the removed nodes
-					for (var i=0;i<mutation.removedNodes.length;i++)
-					{
-						//Get id for added node
-						var id = map.get(mutation.removedNodes[i]);
-						//console.log("removed "+id,mutation.removedNodes[i],mutation.removedNodes[i].parentNode);
-						//If element was tracked
-						if (id)
-						{
-							//Put reference
-							message.deleted.push(id);
-							//Check if it has been inserted again
-							if (!mutation.removedNodes[i].parentNode)
-								//Add to GC list
-								deleted[id] = mutation.removedNodes[i];
-						}
-							
 					}
 					//Push message to the queue
 					queue(MessageType.ChildList,message);
@@ -4447,7 +4527,10 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			release(id,deleted[id]);
 		//Send changed event
 		self.emit("change");
-	});
+	};
+	
+	//Listen for changes
+	this.observer = new MutationObserver (mutator);
 
 	// pass in the target node, as well as the observer options
 	this.observer.observe (self.document, {
@@ -4848,7 +4931,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 								{	
 									//Retarget to whole body
 									target = self.document.body;
-									id = reverse[target];
+									id = map.get(target);
 								}
 								//Delete element referencesl
 								release(id,target);
@@ -5077,11 +5160,15 @@ Reflector.prototype.reflect = function(mirror,options)
 		}
 	}
 
-	function add(id,element) {
+	function attach(element) {
+		//Get new id
+		var id = maxId++;
 		//Add element to reverse
 		reverse[id] = element;
 		//Add to reverse map also
 		map.set(element,id);
+		//Return id
+		return id;
 	}
 
 	function replace(id,element) {
@@ -5100,8 +5187,8 @@ Reflector.prototype.reflect = function(mirror,options)
 		if (element.nodeName==="BASE" && element.hasAttribute("swis"))
 			//Ignore
 			return;
-		//Add element to reverse
-		add(maxId++,element);
+		//Add element to maps
+		attach(element);
 		//For each child node
 		for (var i=0;i<element.childNodes.length;++i)
 		{
@@ -5495,6 +5582,34 @@ Reflector.prototype.reflect = function(mirror,options)
 		//Fire inited
 		self.emit("init",{href:href});
 	};
+	
+	function initIFrame(iframe,href,html)
+	{
+		var mirror = iframe.contentDocument;
+		var window = iframe.contentWindow;
+		
+		//Clean mirrir before populating it
+		while (mirror.childNodes.length)
+			//Delete it
+			mirror.childNodes[0].remove();
+		//Create HTML
+		mirror.open();
+		mirror.write(html);
+		mirror.close();
+		
+		//Add iframe window to maps
+		attach(window);
+		
+		//Pupulate ids
+		populate(mirror);
+		
+		//Listen mouse events
+		mirror.addEventListener ("mousemove", self.onmousemove ,true);
+		//Listen selection evetns
+		mirror.addEventListener("selectionchange", self.onselectionchange , true);
+		//Listen selection evetns
+		mirror.addEventListener("submit", self.onsubmit, true);
+	};
 
 	transport.onmessage = function(message)
 	{	
@@ -5546,6 +5661,13 @@ Reflector.prototype.reflect = function(mirror,options)
 									//console.log("HTML",message);
 									//Init
 									init(message.href,message.html);
+									break;
+								case MessageType.IFrame:
+									//console.log("IFrame",message);
+									//Get target
+									var target = reverse[message.target];
+									//Init
+									initIFrame(target,message.href,message.html);
 									break;
 								case MessageType.ChildList:
 									//console.log("ChildList",message);
@@ -5934,6 +6056,16 @@ Reflector.prototype.paint = function(flag)
 		this.mirror.addEventListener("mousedown",this.onmousedown,true);
 		this.mirror.addEventListener("mouseleave",this.onmouseup,true);
 		this.mirror.addEventListener("mouseup",this.onmouseup,true);
+		//For all iframes
+		var iframes = this.mirror.querySelectorAll("iframe");
+		//Lisen on all of them
+		for (var i=0;i<iframes.length;i++)
+		{
+			//Listen mouse down events
+			iframes[i].contentDocument.mirror.addEventListener("mousedown",this.onmousedown,true);
+			iframes[i].contentDocument.addEventListener("mouseleave",this.onmouseup,true);
+			iframes[i].contentDocument.addEventListener("mouseup",this.onmouseup,true);
+		}
 		//Capture events on canvas
 		this.canvas.enablePointerEvents(true);
 		
@@ -5942,6 +6074,16 @@ Reflector.prototype.paint = function(flag)
 		this.mirror.removeEventListener("mousedown",this.onmousedown,true);
 		this.mirror.removeEventListener("mouseleave",this.onmouseup,true);
 		this.mirror.removeEventListener("mouseup",this.onmouseup,true);
+		//For all iframes
+		var iframes = this.mirror.querySelectorAll("iframe");
+		//Stop listening on all of them
+		for (var i=0;i<iframes.length;i++)
+		{
+			//Stop listening events
+			iframes[i].contentDocument.removeEventListener("mousedown",this.onmousedown,true);
+			iframes[i].contentDocument.removeEventListener("mouseleave",this.onmouseup,true);
+			iframes[i].contentDocument.removeEventListener("mouseup",this.onmouseup,true);
+		}
 		//If we were down
 		if (this.mousedown)
 			//Emulate it
