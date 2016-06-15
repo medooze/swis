@@ -146,6 +146,7 @@
 		background-color:#9f9f9f;
 		-webkit-border-radius:4px;
 	}
+
 </style>
     </head>
 
@@ -240,8 +241,8 @@
 	var first = true;
 	reflector.on("resize",function(data){
 	       //Set the container width
-	       container.style.width =  "400px";//(data.width + (data.height<data.scrollHeight? 8 : 0)) +"px";
-	       container.style.height = "200px";//(data.height+ (data.width <data.scrollWidth ? 8 : 0)) +"px";
+	       container.style.width =  "600px";//(data.width + (data.height<data.scrollHeight? 8 : 0)) +"px";
+	       container.style.height = "600px";//(data.height+ (data.width <data.scrollWidth ? 8 : 0)) +"px";
 	       iframe.width = data.scrollWidth;
 	       iframe.height = data.scrollHeight;
 	       remoteCursorContainer.style.width = data.scrollWidth;

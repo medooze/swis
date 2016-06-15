@@ -3119,6 +3119,10 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// target: target
 			bytebuffer.writeVarint32(message.target);
 			break;
+		case MessageType.Click:
+			// target: target
+			bytebuffer.writeVarint32(message.target);
+			break;
 		case MessageType.Focus:
 			// target: target
 			bytebuffer.writeVarint32(message.target);
@@ -3474,6 +3478,10 @@ MessageParser.prototype.next = function()
 			message.y	= bytebuffer.readUint16();
 			break;
 		case MessageType.MouseOver:
+			// target: target
+			message.target	= bytebuffer.readVarint32();
+			break;
+		case MessageType.Click:
 			// target: target
 			message.target	= bytebuffer.readVarint32();
 			break;
@@ -3866,6 +3874,7 @@ module.exports = [
 	"CharacterData",
 	"MouseMove",
 	"MouseOver",
+	"Click",
 	"Focus",
 	"Blur",
 	"Input",
@@ -3941,6 +3950,43 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	this.wnd = wnd || window;
 	this.document = this.wnd.document;
 	this.baseURL = href || this.document.location.href;
+	
+	
+	this.onscroll = function(e){
+		//Get target
+		var target = 0, top, left;
+		//If is is in the window
+		if (e.target!==self.document)
+		{
+			//Search elements id
+			target = map.get(e.target);
+			//If not found
+			if (!target)
+				//Ignore it
+				return;
+		} 
+		//Get values
+		top  = e.target.scrollTop || e.currentTarget.scrollY;
+		left = e.target.scrollLeft || e.currentTarget.scrollX;
+
+		//Check if scroll event was produced by a RemoteScroll
+		if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
+		{
+			//Ok here it is the event
+			delete(self.scrolling[target]);
+			//Ignore it
+			return;
+		}
+		//Check if we have changed
+		queue(MessageType.Scroll,{
+			target: target,
+			top: top,
+			left: left
+		});
+
+		//Redraw highlights
+		self.highlighter && self.highlighter.redraw();
+	};
 	
 	//POstponed messasges
 	var postponed = [];
@@ -4295,6 +4341,8 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				setTimeout(function(){
 					processIFrame(id,element);
 				},0);
+				//Set scroll event on content window
+				element.contentWindow.addEventListener("scroll",self.onscroll,true);
 			//Change BASE href
 			} else if (cloned.nodeName==="BASE")
 				//Change href
@@ -4637,9 +4685,12 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	});
 	
 	self.document.addEventListener ("mousemove", (this.onmousemove = function (event) {
-		queue(MessageType.MouseMove,{
-			x: event.clientX,
-			y: event.clientY
+		//Get offset of event window
+		var offset = Utils.getWindowOffset(event.currentTarget.defaultView,mirror.defaultView);
+		//Send message back
+		queue(MessageType.MouseMove, {
+			x: event.clientX + offset.x,
+			y: event.clientY + offset.y
 		});
 	}),true);
 	
@@ -4688,7 +4739,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			return;
 		//Check if we have changed
 		queue(MessageType.Focus,{
-			target: map.get(e.target || e.target)
+			target: map.get(e.target)
 		});
 	}),true);
 
@@ -4793,44 +4844,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	}), true);
 
 	
-	self.wnd.addEventListener("scroll", (this.onscroll = function(e){
-		//Get target
-		var target = 0, top, left;
-		//If is is in the window
-		if (e.target!==self.document)
-		{
-			//Search elements id
-			target = map.get(e.target);
-			//If not found
-			if (!target)
-				//Ignore it
-				return;
-			//Get values
-			top  = e.target.scrollTop;
-			left = e.target.scrollLeft;
-		} else {
-			//Get it from window
-			top  = self.wnd.scrollY;
-			left = self.wnd.scrollX; 
-		}
-		//Check if scroll event was produced by a RemoteScroll
-		if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
-		{
-			//Ok here it is the event
-			delete(self.scrolling[target]);
-			//Ignore it
-			return;
-		}
-		//Check if we have changed
-		queue(MessageType.Scroll,{
-			target: target,
-			top: top,
-			left: left
-		});
-
-		//Redraw highlights
-		self.highlighter && self.highlighter.redraw();
-	}),true);
+	self.wnd.addEventListener("scroll", this.onscroll,true);
 	
 	self.wnd.addEventListener("resize", (this.onresize = function(e){
 		//Check if we have changed
@@ -4955,6 +4969,13 @@ Observer.prototype.observe = function(exclude,wnd,href)
 									});
 								}
 								break;
+							//Click
+							case MessageType.Click:
+								//Get target
+								var target = reverse[message.target];
+								//Click
+								target.click && target.click();
+								break;
 							//Mouse cursor
 							case MessageType.MouseMove:
 								//Move cursor
@@ -5011,9 +5032,16 @@ Observer.prototype.observe = function(exclude,wnd,href)
 								} else {
 									//Get target
 									var target = reverse[message.target];
-									//Scroll
-									target.scrollTop = message.top;
-									target.scrollLeft = message.left;
+									//if it is in the dcument of an iframe 
+									if (target.nodeType === 9)
+									{
+										//Scroll iframe window
+										target.defaultView.scrollTo(message.left,message.top);
+									} else {
+										//Scroll
+										target.scrollTop = message.top;
+										target.scrollLeft = message.left;
+									}
 								}
 								break;
 							//Update element request
@@ -5185,6 +5213,9 @@ Reflector.prototype.reflect = function(mirror,options)
 		options
 	);
 	
+	//Set Sync scroll flag
+	this.scrollSync(options.scrollSync);
+		
 	var factory = this.factory;
 	
 	function flush() {
@@ -5648,11 +5679,24 @@ Reflector.prototype.reflect = function(mirror,options)
 		mirror.documentElement.style.overflow = "hidden";
 		
 		//Listen mouse events
+		mirror.addEventListener ("click",(self.onclick = function (e) {
+			//Send clieck
+			queue(MessageType.Click,{
+				target: map.get(e.target)
+			});
+			//Stop submission
+			e.preventDefault();
+			//Exit
+			return false;
+		}),true);
+		
 		mirror.addEventListener ("mousemove",(self.onmousemove = function (event) {
+			//Get offset of event window
+			var offset = Utils.getWindowOffset(event.currentTarget.defaultView,mirror.defaultView);
 			//Send message back
 			queue(MessageType.MouseMove, {
-				x: event.clientX,
-				y: event.clientY
+				x: event.clientX + offset.x,
+				y: event.clientY + offset.y
 			});
 			//If we are painting
 			if (self.path)
@@ -5696,8 +5740,9 @@ Reflector.prototype.reflect = function(mirror,options)
 			//Redraw highlights
 			self.highlighter.redraw();
 		}), true);
-		//Sync scroll
-		self.scrollSync(options.scrollSync);
+		
+		//Start listiening scroll events
+		mirror.defaultView.addEventListener("scroll",self.onscroll,true);
 		//Fire inited
 		self.emit("init",{href:href});
 	};
@@ -5723,11 +5768,15 @@ Reflector.prototype.reflect = function(mirror,options)
 		populate(mirror);
 		
 		//Listen mouse events
+		mirror.addEventListener ("click", self.onclick ,true);
 		mirror.addEventListener ("mousemove", self.onmousemove ,true);
 		//Listen selection evetns
 		mirror.addEventListener("selectionchange", self.onselectionchange , true);
 		//Listen selection evetns
 		mirror.addEventListener("submit", self.onsubmit, true);
+		//Start listiening scroll events
+		//mirror.addEventListener("scroll",self.onscroll,true);
+		window.addEventListener("scroll",self.onscroll,true);
 	};
 
 	transport.onmessage = function(message)
@@ -6064,9 +6113,16 @@ Reflector.prototype.reflect = function(mirror,options)
 									} else {
 										//Get target
 										var target = reverse[message.target];
-										//Scroll
-										target.scrollTop = message.top;
-										target.scrollLeft = message.left;
+										//if it is in the dcument of an iframe 
+										if (target.nodeType === 9)
+										{
+											//Scroll iframe window
+											target.defaultView.scrollTo(message.left,message.top);
+										} else {
+											//Scroll
+											target.scrollTop = message.top;
+											target.scrollLeft = message.left;
+										}
 									}
 									break;
 								default:
@@ -6130,14 +6186,12 @@ Reflector.prototype.reflect = function(mirror,options)
 		}
 	};
 	
-	//Create listener for mousedown/up for future use
+	//Create listener for click/mousedown/up for future use
 	this.onmousedown = function (event) {
-		//If we are painting
-		if (self.painting)
-			//Send message back
-			queue(MessageType.Paint, {
-				flag: true
-			});
+		//Send message back
+		queue(MessageType.Paint, {
+			flag: true
+		});
 		//Store state
 		self.path = self.canvas.createPath('green');
 		//Set style of cursor
@@ -6157,6 +6211,46 @@ Reflector.prototype.reflect = function(mirror,options)
 		self.canvas.setCursor("auto");
 		//Store state
 		self.path = false;
+	};
+	
+	this.onscroll = function(e) {
+		//Check if we are remotelly scrollgin
+		if (self.remoteScrolling)
+		{
+			//Get target
+			var target = 0, top, left;
+			//If is is in the window
+			if (e.target!==self.mirror)
+			{
+				//Search elements id
+				target = self.map.get(e.target);
+				//If not found
+				if (!target)
+					//Ignore it
+					return;
+				
+			}
+			//Get values
+			top  = e.target.scrollTop || e.currentTarget.scrollY;
+			left = e.target.scrollLeft || e.currentTarget.scrollX;
+			//Check if scroll event was produced by a RemoteScroll
+			if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
+			{
+				//Ok here it is the event
+				delete(self.scrolling[target]);
+				//Ignore it
+				return;
+			}
+			//Check if we have changed
+			self.queue(MessageType.Scroll,{
+				target: target,
+				top: top,
+				left: left
+			});
+		}
+
+		//Redraw highlights
+		self.highlighter && self.highlighter.redraw();
 	};
 	
 	//We are reflecting
@@ -6276,65 +6370,8 @@ Reflector.prototype.download = function()
 
 Reflector.prototype.scrollSync = function(flag)
 {
-	var self = this;
-	//Check if we are enabling it or not
-	if (flag) 
-	{
-		//If we already are listeneing to scroll events
-		if (this.onscroll)
-			//Remove event
-			this.mirror.defaultView.removeEventListener("scroll",this.onscroll,true);
-		
-		//Start listiening scroll events
-		this.mirror.defaultView.window.addEventListener("scroll", (this.onscroll = function(e){
-			//Get target
-			var target = 0, top, left;
-			//If is is in the window
-			if (e.target!==self.mirror)
-			{
-				//Search elements id
-				target = self.map.get(e.target);
-				//If not found
-				if (!target)
-					//Ignore it
-					return;
-				//Get values
-				top  = e.target.scrollTop;
-				left = e.target.scrollLeft;
-			} else {
-				//Get it from window
-				top  = window.scrollY;
-				left = window.scrollX; 
-			}
-			//Check if scroll event was produced by a RemoteScroll
-			if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
-			{
-				//Ok here it is the event
-				delete(self.scrolling[target]);
-				//Ignore it
-				return;
-			}
-			//Check if we have changed
-			self.queue(MessageType.Scroll,{
-				target: target,
-				top: top,
-				left: left
-			});
-
-			//Redraw highlights
-			self.highlighter && self.highlighter.redraw();
-		}),true);
-	} else {
-		//If we already are listeneing to scroll events
-		if (this.onscroll)
-			//Remove event
-			this.mirror.defaultView.removeEventListener("scroll",this.onscroll,true);
-		//Start listiening scroll events
-		this.mirror.defaultView.window.addEventListener("scroll", (this.onscroll = function(e){
-			//Just redraw highlights
-			self.highlighter && self.highlighter.redraw();
-		}),true);
-	}
+	//Store flag
+	this.remoteScrolling = flag;
 };
 
 Reflector.prototype.scroll = function(left,top)
@@ -6383,6 +6420,7 @@ Reflector.prototype.stop = function()
 	//Scrolling elements
 	this.scrolling = {};
 	//Remove listener
+	this.mirror.removeEventListener("click",this.onclick,true);
 	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
 	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);
 	this.mirror.removeEventListener("submit",this.onsubmit,true);
@@ -6476,6 +6514,21 @@ SelectionHighlighter.prototype.close = function()
 
 module.exports = SelectionHighlighter;
 },{"./utils.js":15}],15:[function(require,module,exports){
+function getWindowOffset(window,top)
+{
+	var offset = {x:0,y:0};
+	
+	while (window!==top)
+	{
+		//Update offset with current window
+		offset.x += window.frameElement.offsetLeft;
+		offset.y += window.frameElement.offsetTop;
+		//Go to parent
+		window = window.parent;
+	}
+	//Return offset
+	return offset;
+}
 
 function canvasToArrayBuffer(canvas,callback, type, quality)
 {
@@ -6705,7 +6758,8 @@ module.exports = {
 	getAncestors : getAncestors,
 	getCommonAncestors: getCommonAncestors,
 	createElementFromHTML: createElementFromHTML,
-	canvasToArrayBuffer: canvasToArrayBuffer
+	canvasToArrayBuffer: canvasToArrayBuffer,
+	getWindowOffset: getWindowOffset
 };
 },{}],16:[function(require,module,exports){
 if (typeof Object.create === 'function') {
