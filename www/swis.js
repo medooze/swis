@@ -310,7 +310,7 @@ module.exports = {
 	Utils: require("./lib/utils.js"),
 	Canvas: require("./lib/canvas.js")
 };
-},{"./lib/canvas.js":3,"./lib/message/aggregator.js":4,"./lib/message/factory.js":6,"./lib/message/parser.js":7,"./lib/message/player.js":8,"./lib/message/type.js":10,"./lib/observer.js":12,"./lib/reflector.js":13,"./lib/utils.js":15}],3:[function(require,module,exports){
+},{"./lib/canvas.js":3,"./lib/message/aggregator.js":5,"./lib/message/factory.js":7,"./lib/message/parser.js":8,"./lib/message/player.js":9,"./lib/message/type.js":11,"./lib/observer.js":13,"./lib/reflector.js":14,"./lib/utils.js":16}],3:[function(require,module,exports){
 
 function Path(canvas,color)
 {
@@ -452,6 +452,81 @@ Canvas.prototype.close = function() {
 
 module.exports = Canvas;
 },{}],4:[function(require,module,exports){
+
+//Helper class for handling remote font loading
+function Font(url,requestRemote)
+{
+	//Nothing yet
+	this.url = null;
+	this.original = url;
+	this.pending = [];
+	//Check if we can reach it
+	this.xhr = new XMLHttpRequest();
+	//Ping
+	this.xhr.open('HEAD', url);
+	this.xhr.onerror = function(e) {
+		//If we couln't not access to it
+		if (this.status===0)
+			//Request it remotelly
+			requestRemote();
+	};
+	//Send
+	this.xhr.send();
+}
+
+Font.getURL = function(src)
+{
+	return src.match(/url\s*\(\s*['"]?\s*([^\s"']*)\s*['"]?\s*\)/)[1];
+}
+
+Font.prototype.update = function(font)
+{
+	//Create blob
+	var blob = new Blob([font]);
+	//Create url
+	this.url = URL.createObjectURL (blob);
+	//Process pending rules
+	for (var i=0;i<this.pending.length;++i)
+		//Update rule
+		this.rewriteRule(this.pending[i].rule,this.pending[i].pos);
+	//Empty pending
+	this.pending = null;
+};
+
+Font.prototype.rewriteRule = function(rule,pos)
+{
+	//Get SRCS
+	var srcs = rule.style.src.split(", ");
+	//Change us
+	srcs[pos].replace(this.original,this.url);
+	//Set it again
+	rule.style.src = srcs.join(", ");
+};
+
+Font.prototype.addRule = function(rule,pos)
+{
+	if (this.pending)
+		this.pending.push({
+			rule: rule,
+			pos: pos
+		});
+	else
+		this.rewriteRule(rule,pos);
+};
+
+Font.prototype.release = function()
+{
+	if (this.url)
+		URL.revokeObjectUrl(this.url);
+	this.pending = null;
+	//JIC
+	this.xhr.onerror = null;
+	this.xhr.abort();
+};
+
+module.exports = Font;
+
+},{}],5:[function(require,module,exports){
 var ByteBuffer = require("./bytebuffer.js");
 
 function MessageChunkAggregator()
@@ -529,7 +604,7 @@ MessageChunkAggregator.prototype.push = function(buffer)
 };
 
 module.exports = MessageChunkAggregator;
-},{"./bytebuffer.js":5}],5:[function(require,module,exports){
+},{"./bytebuffer.js":6}],6:[function(require,module,exports){
 "use strict";
 
     /**
@@ -2975,7 +3050,7 @@ module.exports = MessageChunkAggregator;
     };
 
 module.exports = ByteBuffer;
-},{}],6:[function(require,module,exports){
+},{}],7:[function(require,module,exports){
 var MessageType = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3239,6 +3314,19 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// target: target
 			bytebuffer.writeVarint32(message.target);
 			break;
+		case MessageType.FontRequest:
+			// url: url
+			bytebuffer.writeVString(message.url);
+			break;
+		case MessageType.UpdateRequest:
+			// url: url
+			// font: [compressed]
+			bytebuffer.writeVString(message.url);
+			//Compress html
+			var compressed = pako.deflate(message.font);
+			bytebuffer.writeVarint32(compressed.length);
+			bytebuffer.writeBytes(compressed);
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3373,7 +3461,7 @@ MessageFactory.prototype.flush = function(useBlob,chunked)
 
 module.exports =  MessageFactory;
 
-},{"./bytebuffer.js":5,"./type.js":10,"pako":17}],7:[function(require,module,exports){
+},{"./bytebuffer.js":6,"./type.js":11,"pako":18}],8:[function(require,module,exports){
 var MessageType  = require("./type.js");
 var ByteBuffer = require("./bytebuffer.js");
 var pako = require("pako");
@@ -3594,6 +3682,17 @@ MessageParser.prototype.next = function()
 			// target: target
 			message.target	= bytebuffer.readVarint32();
 			break;
+		case MessageType.FontRequest:
+			// url: url
+			message.url	= bytebuffer.readVString();
+			
+			break;
+		case MessageType.Font:
+			// url: url
+			// font: [compressed]
+			message.url	= bytebuffer.readVString();
+			message.font	= pako.inflate( bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer(), { to: 'string' });
+			break;
 		default:
 			//Error
 			throw new Error("Unknown message type",type,message);
@@ -3634,7 +3733,7 @@ MessageParser.Parse = function(data)
 };
 
 module.exports = MessageParser;
-},{"./bytebuffer.js":5,"./type.js":10,"pako":17}],8:[function(require,module,exports){
+},{"./bytebuffer.js":6,"./type.js":11,"pako":18}],9:[function(require,module,exports){
 var ByteBuffer = require("./bytebuffer.js");
 
 var EventEmitter = require('events').EventEmitter;
@@ -3798,7 +3897,7 @@ module.exports = MessagePlayer;
 
 
 
-},{"./bytebuffer.js":5,"events":1,"inherits":16}],9:[function(require,module,exports){
+},{"./bytebuffer.js":6,"events":1,"inherits":17}],10:[function(require,module,exports){
 var ByteBuffer = require("./bytebuffer.js");
 
 
@@ -3852,7 +3951,7 @@ MessageRecorder.prototype.close = function()
 };
 
 module.exports = MessageRecorder;
-},{"./bytebuffer.js":5}],10:[function(require,module,exports){
+},{"./bytebuffer.js":6}],11:[function(require,module,exports){
 var Types = require("./types.js")
 
 var Type =  {};
@@ -3863,7 +3962,7 @@ for (var i = 0; i<Types.length; ++i)
 	Type[Types[i]] = i;
 
 module.exports = Type;
-},{"./types.js":11}],11:[function(require,module,exports){
+},{"./types.js":12}],12:[function(require,module,exports){
 // Observer -> Reflector messages
 module.exports = [
 	"HTML",
@@ -3889,9 +3988,11 @@ module.exports = [
 	"Paint",
 	"Clear",
 	"Scroll",
-	"UpdateRequest"
+	"UpdateRequest",
+	"FontRequest",
+	"Font"
 ];
-},{}],12:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
@@ -4686,7 +4787,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	
 	self.document.addEventListener ("mousemove", (this.onmousemove = function (event) {
 		//Get offset of event window
-		var offset = Utils.getWindowOffset(event.currentTarget.defaultView,mirror.defaultView);
+		var offset = Utils.getWindowOffset(event.currentTarget.defaultView,self.wnd);
 		//Send message back
 		queue(MessageType.MouseMove, {
 			x: event.clientX + offset.x,
@@ -5078,6 +5179,24 @@ Observer.prototype.observe = function(exclude,wnd,href)
 									left: self.wnd.scrollX
 								});
 								break;
+							//Fecth font
+							case MessageType.FontRequest:
+								//Get requested url
+								var url  = message.target;
+								//Fetch it
+								var xhr = new XMLHttpRequest ();
+								//Set handlers
+								xhr.addEventListener("load", function(){
+									//Check if we have changed
+									queue(MessageType.Font,{
+										url	: url,
+										font	: this.responseText
+									});
+								});
+								//Load css
+								xhr.open("GET", url);
+								xhr.send();
+								break;
 							default:
 								console.error("unknown message",message);
 						}	
@@ -5141,7 +5260,7 @@ Observer.prototype.stop = function()
 };
 
 module.exports = Observer;
-},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/type.js":10,"./selectionhighlighter.js":14,"./utils.js":15,"events":1,"inherits":16}],13:[function(require,module,exports){
+},{"./canvas.js":3,"./message/aggregator.js":5,"./message/factory.js":7,"./message/parser.js":8,"./message/type.js":11,"./selectionhighlighter.js":15,"./utils.js":16,"events":1,"inherits":17}],14:[function(require,module,exports){
 var MessageType = require("./message/type.js");
 var MessageFactory = require("./message/factory.js");
 var MessageParser = require("./message/parser.js");
@@ -5153,6 +5272,7 @@ var SelectionHighlighter = require("./selectionhighlighter.js")
 
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
+var Font = require('./helpers/font.js');
 
 function Reflector(transport,options)
 {
@@ -5168,6 +5288,8 @@ function Reflector(transport,options)
 	this.scrolling = {};
 	//The message factory
 	this.factory =  new MessageFactory(); 
+	//Fonts
+	this.fonts = {};
 	//Set defaults
 	this.options = Object.assign({
 		blob: true,
@@ -5563,7 +5685,7 @@ Reflector.prototype.reflect = function(mirror,options)
 			while(rules && rules.length && i<rules.length) 
 			{
 				//Check if it is a media rule
-				if (rules[i].type===4)
+				if (rules[i].type===CSSRule.MEDIA_RULE)
 				{
 					//Check if we have css in the buffer
 					if (remaining)
@@ -5617,13 +5739,43 @@ Reflector.prototype.reflect = function(mirror,options)
 					
 					//We need to keep order of following css rules
 					keepOrder = true;
+				//Check if it is a CSSFont
+				} else if (rules[i].type===CSSRule.FONT_FACE_RULE) {
+					//We don't reorder font rules, who is going to re-write a font-family or set it inside a media query???
 					
+					//Get urls 
+					var srcs = rules[i].style.src.split(", ");
+					//For each one
+					for (var j=0;j<srcs.length;++j)
+					{
+						var font;
+						//Get url
+						var url = Font.getURL(srcs[j]);
+						//Check if it is already on fonts
+						if (self.fonts.hasOwnProperty (url))
+							//Get font
+							font = self.fonts(url);
+						else
+							//Create font
+							font = new Font(url,function(){
+								//Request font update if not found
+								queue(MessageType.FontRequest,{
+									url: url
+								});
+							});
+						//Add this rule
+						font.addRule(rules[i],j);
+					}
+					//Next
+					i++;
 				} else {
 					
 					//Check if its a CSSRule
-					if (rules[i].type===1) 
+					if (rules[i].type===CSSRule.STYLE_RULE) 
 						//Replace pseudo classes
 						rules[i].selectorText = rules[i].selectorText.replace(":hover","[data-hover]");
+					
+						
 					//If we are accumulating because we need to keep order of css
 					if (keepOrder)
 					{
@@ -6125,6 +6277,17 @@ Reflector.prototype.reflect = function(mirror,options)
 										}
 									}
 									break;
+								//Set exteranl Font
+								case MessageType.Font:
+									//console.log("External Font content",message.url);
+									//Get font
+									var font = self.fonts(message.url);
+									//If found
+									if (font)
+										//Update contents
+										font.update(message.font);
+									//Reset
+									break;
 								default:
 									console.error("unknown message",message);
 							}
@@ -6413,6 +6576,12 @@ Reflector.prototype.stop = function()
 	//Map and reverse map
 	this.map = new WeakMap();
 	this.reverse = {};
+	//Release fonts
+	for (var k in this.fonts)
+		//release font
+		this.fonts[k].release();
+	//Empty font list
+	this.fonts = {};
 	//The CSS child references
 	this.csschilds = {};
 	//Media rules
@@ -6432,7 +6601,7 @@ Reflector.prototype.stop = function()
 };
 
 module.exports = Reflector;
-},{"./canvas.js":3,"./message/aggregator.js":4,"./message/factory.js":6,"./message/parser.js":7,"./message/recorder.js":9,"./message/type.js":10,"./selectionhighlighter.js":14,"./utils.js":15,"events":1,"inherits":16}],14:[function(require,module,exports){
+},{"./canvas.js":3,"./helpers/font.js":4,"./message/aggregator.js":5,"./message/factory.js":7,"./message/parser.js":8,"./message/recorder.js":10,"./message/type.js":11,"./selectionhighlighter.js":15,"./utils.js":16,"events":1,"inherits":17}],15:[function(require,module,exports){
 var Utils = require("./utils.js");
 
 function SelectionHighlighter(document)
@@ -6513,7 +6682,7 @@ SelectionHighlighter.prototype.close = function()
 };
 
 module.exports = SelectionHighlighter;
-},{"./utils.js":15}],15:[function(require,module,exports){
+},{"./utils.js":16}],16:[function(require,module,exports){
 function getWindowOffset(window,top)
 {
 	var offset = {x:0,y:0};
@@ -6761,7 +6930,7 @@ module.exports = {
 	canvasToArrayBuffer: canvasToArrayBuffer,
 	getWindowOffset: getWindowOffset
 };
-},{}],16:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -6786,7 +6955,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],17:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -6802,7 +6971,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":18,"./lib/inflate":19,"./lib/utils/common":20,"./lib/zlib/constants":23}],18:[function(require,module,exports){
+},{"./lib/deflate":19,"./lib/inflate":20,"./lib/utils/common":21,"./lib/zlib/constants":24}],19:[function(require,module,exports){
 'use strict';
 
 
@@ -7204,7 +7373,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":20,"./utils/strings":21,"./zlib/deflate":25,"./zlib/messages":30,"./zlib/zstream":32}],19:[function(require,module,exports){
+},{"./utils/common":21,"./utils/strings":22,"./zlib/deflate":26,"./zlib/messages":31,"./zlib/zstream":33}],20:[function(require,module,exports){
 'use strict';
 
 
@@ -7624,7 +7793,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":20,"./utils/strings":21,"./zlib/constants":23,"./zlib/gzheader":26,"./zlib/inflate":28,"./zlib/messages":30,"./zlib/zstream":32}],20:[function(require,module,exports){
+},{"./utils/common":21,"./utils/strings":22,"./zlib/constants":24,"./zlib/gzheader":27,"./zlib/inflate":29,"./zlib/messages":31,"./zlib/zstream":33}],21:[function(require,module,exports){
 'use strict';
 
 
@@ -7728,7 +7897,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],21:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -7915,7 +8084,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":20}],22:[function(require,module,exports){
+},{"./common":21}],23:[function(require,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -7949,7 +8118,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],23:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 'use strict';
 
 
@@ -8001,7 +8170,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],24:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -8044,7 +8213,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],25:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 'use strict';
 
 var utils   = require('../utils/common');
@@ -9894,7 +10063,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":20,"./adler32":22,"./crc32":24,"./messages":30,"./trees":31}],26:[function(require,module,exports){
+},{"../utils/common":21,"./adler32":23,"./crc32":25,"./messages":31,"./trees":32}],27:[function(require,module,exports){
 'use strict';
 
 
@@ -9936,7 +10105,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],27:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -10264,7 +10433,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],28:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 'use strict';
 
 
@@ -11804,7 +11973,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":20,"./adler32":22,"./crc32":24,"./inffast":27,"./inftrees":29}],29:[function(require,module,exports){
+},{"../utils/common":21,"./adler32":23,"./crc32":25,"./inffast":28,"./inftrees":30}],30:[function(require,module,exports){
 'use strict';
 
 
@@ -12133,7 +12302,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":20}],30:[function(require,module,exports){
+},{"../utils/common":21}],31:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -12148,7 +12317,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],31:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 'use strict';
 
 
@@ -13352,7 +13521,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":20}],32:[function(require,module,exports){
+},{"../utils/common":21}],33:[function(require,module,exports){
 'use strict';
 
 
