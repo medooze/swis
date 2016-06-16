@@ -4000,6 +4000,8 @@ var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
 var Utils = require('./utils.js');
 
+var canvasColor = "#ffc820";
+
 function Observer(transport,options)
 {
 	this.transport = transport;
@@ -5053,7 +5055,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				// reset the path when starting over
 				if (message.flag)
 					//Create new path
-					self.path = self.canvas.createPath('green');
+					self.path = self.canvas.createPath(canvasColor);
 				else
 					//Stop old one
 					self.path = null;
@@ -5275,6 +5277,8 @@ var SelectionHighlighter = require("./selectionhighlighter.js")
 var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
 var Font = require('./helpers/font.js');
+
+var canvasColor = "#1b49a0";
 
 function Reflector(transport,options)
 {
@@ -6395,7 +6399,7 @@ Reflector.prototype.reflect = function(mirror,options)
 			flag: true
 		});
 		//Store state
-		self.path = self.canvas.createPath('green');
+		self.path = self.canvas.createPath(canvasColor);
 		//Set style of cursor
 		self.canvas.setCursor("pointer");
 		//Disable texg selection and oder interactions
