@@ -139,10 +139,10 @@
 		<textarea></textarea>
 		<select ><option>a <option>b</select>
 		<input type="text">
-		<input type="checkbox"> check
+		<input id=checkbox type="checkbox"> check
 		<input type="radio" name="a" value="1"> radio1
 		<input type="radio" name="a" value="2"> radio2
-		<button type="submit">NOOOO</button>
+		<button id=submit type="submit">NOOOO</button>
 		</form>
 		<div class="scroll">
 		<div>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent a sagittis risus, quis blandit augue. Proin id ullamcorper magna. Pellentesque dignissim sem ut ipsum egestas, et tempus eros tempus. Nullam eu maximus purus. Proin scelerisque sit amet sapien vel viverra. Cras bibendum non sapien ut rhoncus. Quisque viverra justo in augue pulvinar vestibulum. Proin dignissim ultrices orci, finibus faucibus tellus ullamcorper id. Ut lacinia mi odio, sed luctus dolor posuere eget.</div>
@@ -211,6 +211,10 @@
 		//Set new position
 		remoteCursor.style["left"] = (data.x-20) + "px";
 		remoteCursor.style["top"] =  (data.y-15) + "px";
+	});
+	
+	checkbox.addEventListener("click",function(e){
+		submit.disabled = checkbox.checked;
 	});
 	
 	

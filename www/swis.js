@@ -3179,7 +3179,13 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			// value: mutation.target.getAttribute(mutation.attributeName)
 			bytebuffer.writeVarint32(message.target);
 			bytebuffer.writeVString(message.key);
-			bytebuffer.writeVString(message.value || "");
+			bytebuffer.writeVString(message.value);
+			break;
+		case MessageType.AttributesRemove:
+			// target: target,
+			// key: mutation.attributeName,
+			bytebuffer.writeVarint32(message.target);
+			bytebuffer.writeVString(message.key);
 			break;
 		case MessageType.CharacterData:
 			// target: target,
@@ -3554,6 +3560,13 @@ MessageParser.prototype.next = function()
 			message.target	= bytebuffer.readVarint32();
 			message.key	= bytebuffer.readVString();
 			message.value	= bytebuffer.readVString();
+			break;
+		case MessageType.AttributesRemove:
+			// target: target,
+			// key: mutation.attributeName,
+			// value: mutation.target.getAttribute(mutation.attributeName)
+			message.target	= bytebuffer.readVarint32();
+			message.key	= bytebuffer.readVString();
 			break;
 		case MessageType.CharacterData:
 			// target: target,
@@ -3965,6 +3978,7 @@ module.exports = [
 	"Image",
 	"ChildList",
 	"Attributes",
+	"AttributesRemove",
 	"CharacterData",
 	"MouseMove",
 	"MouseOver",
@@ -4209,6 +4223,19 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		if (self.inlining.hasOwnProperty (id))
 			//Abort it
 			self.inlining[id].abort();
+		//Check if we are removing the src attribute
+		if (!href)
+		{
+			//Check if we have changed
+			queue(MessageType.AttributesRemove,{
+				target		: id,
+				key		: "src"
+			});
+			//Done
+			delete (self.inlining[id]);
+			//Exit
+			return;
+		}
 		//Get base absolute url
 		var absolute = self.baseURL;
 		//Check if there is a BASE element in the document
@@ -4709,12 +4736,20 @@ Observer.prototype.observe = function(exclude,wnd,href)
 						//We may have been resized
 						resized = true;
 					
-					//Mutaion message
-					queue(MessageType.Attributes,{
-						target	: target,
-						key	: mutation.attributeName,
-						value	: mutation.target.getAttribute(mutation.attributeName)
-					});
+					//check if element has the attribute or if we are removing it
+					if (mutation.target.hasAttribute(mutation.attributeName))
+						//Mutaion message
+						queue(MessageType.Attributes, {
+							target	: target,
+							key	: mutation.attributeName,
+							value	: mutation.target.getAttribute(mutation.attributeName)
+						});
+					else 
+						//Mutaion message
+						queue(MessageType.AttributesRemove, {
+							target	: target,
+							key	: mutation.attributeName
+						});
 					//Append to handled attributes
 					handled[target][mutation.attributeName] = true;
 					break;
@@ -5278,7 +5313,7 @@ var EventEmitter = require('events').EventEmitter;
 var inherits = require('inherits');
 var Font = require('./helpers/font.js');
 
-var canvasColor = "#1b49a0";
+var canvasColor = "#ffc820";
 
 function Reflector(transport,options)
 {
@@ -6092,6 +6127,29 @@ Reflector.prototype.reflect = function(mirror,options)
 									var target = reverse[message.target];
 									//Set data
 									target.setAttribute(message.key,message.value);
+									//Check it has not changed the html
+									if (target === mirror.documentElement )
+										//Never show scrollbars
+										mirror.documentElement.style.overflow = "hidden";
+									//If we are disabling a css style
+									if (message.key === "disabled" && target.nodeName === "STYLE")
+									{
+										//Is style disabled?
+										var disabled =  message.value;
+										//Get childs (if any)
+										var childs = csschilds[message.target];
+										//For each one
+										for (var i=0;i<childs.length;++i)
+											//Apply it
+											childs[i].disabled = disabled || mediarules[childs[i].dataset["swisMediaRuleId"]].disabled;
+									}
+									break;
+								case MessageType.AttributesRemove:
+									//console.log("AttributesRemove",message);
+									//Get target
+									var target = reverse[message.target];
+									//Set data
+									target.removeAttribute(message.key);
 									//Check it has not changed the html
 									if (target === mirror.documentElement )
 										//Never show scrollbars
