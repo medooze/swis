@@ -454,16 +454,16 @@ module.exports = Canvas;
 },{}],4:[function(require,module,exports){
 
 //Helper class for handling remote font loading
-function Font(url,requestRemote)
+function Font(original,href,requestRemote)
 {
 	//Nothing yet
 	this.url = null;
-	this.original = url;
+	this.original = original;
 	this.pending = [];
 	//Check if we can reach it
 	this.xhr = new XMLHttpRequest();
 	//Ping
-	this.xhr.open('HEAD', url);
+	this.xhr.open('HEAD', href);
 	this.xhr.onerror = function(e) {
 		//If we couln't not access to it
 		if (this.status===0)
@@ -479,45 +479,38 @@ Font.getURL = function(src)
 	return src.match(/url\s*\(\s*['"]?\s*([^\s"']*)\s*['"]?\s*\)/)[1];
 }
 
-Font.prototype.update = function(font)
+Font.prototype.update = function(font,type)
 {
 	//Create blob
-	var blob = new Blob([font]);
+	var blob = new Blob([font],{type: type});
 	//Create url
 	this.url = URL.createObjectURL (blob);
 	//Process pending rules
 	for (var i=0;i<this.pending.length;++i)
 		//Update rule
-		this.rewriteRule(this.pending[i].rule,this.pending[i].pos);
+		this.rewriteStyle(this.pending[i]);
 	//Empty pending
 	this.pending = null;
 };
 
-Font.prototype.rewriteRule = function(rule,pos)
+Font.prototype.rewriteStyle = function(element)
 {
-	//Get SRCS
-	var srcs = rule.style.src.split(", ");
 	//Change us
-	srcs[pos].replace(this.original,this.url);
-	//Set it again
-	rule.style.src = srcs.join(", ");
+	element.innerHTML = element.innerHTML.replace(this.original,this.url);
 };
 
-Font.prototype.addRule = function(rule,pos)
+Font.prototype.addStyle = function(element)
 {
 	if (this.pending)
-		this.pending.push({
-			rule: rule,
-			pos: pos
-		});
+		this.pending.push(element);
 	else
-		this.rewriteRule(rule,pos);
+		this.rewriteStyle(element);
 };
 
 Font.prototype.release = function()
 {
 	if (this.url)
-		URL.revokeObjectUrl(this.url);
+		URL.revokeObjectURL(this.url);
 	this.pending = null;
 	//JIC
 	this.xhr.onerror = null;
@@ -3141,6 +3134,16 @@ MessageFactory.prototype.appendMessage = function(type,message)
 			bytebuffer.writeVarint32(message.image.byteLength);
 			bytebuffer.writeBytes(message.image);
 			break;
+		case MessageType.Font:
+			// url 
+			// type: content-type
+			// font: [binary]
+			bytebuffer.writeVString(message.url);
+			bytebuffer.writeVString(message.type);
+			//Binary image
+			bytebuffer.writeVarint32(message.font.byteLength);
+			bytebuffer.writeBytes(message.font);
+			break;
 		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
@@ -3317,15 +3320,6 @@ MessageFactory.prototype.appendMessage = function(type,message)
 		case MessageType.FontRequest:
 			// url: url
 			bytebuffer.writeVString(message.url);
-			break;
-		case MessageType.UpdateRequest:
-			// url: url
-			// font: [compressed]
-			bytebuffer.writeVString(message.url);
-			//Compress html
-			var compressed = pako.deflate(message.font);
-			bytebuffer.writeVarint32(compressed.length);
-			bytebuffer.writeBytes(compressed);
 			break;
 		default:
 			//Error
@@ -3517,6 +3511,14 @@ MessageParser.prototype.next = function()
 			message.type	= bytebuffer.readVString();
 			message.image	= bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer();
 			break;
+		case MessageType.Font:
+			// url	 
+			// type: content-type
+			// font: [binary]
+			message.url	= bytebuffer.readVString();
+			message.type	= bytebuffer.readVString();
+			message.font	= bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer();
+			break;
 		case MessageType.ChildList:
 			// target: target,
 			// previous: map.get(mutation.previousSibling),
@@ -3685,13 +3687,6 @@ MessageParser.prototype.next = function()
 		case MessageType.FontRequest:
 			// url: url
 			message.url	= bytebuffer.readVString();
-			
-			break;
-		case MessageType.Font:
-			// url: url
-			// font: [compressed]
-			message.url	= bytebuffer.readVString();
-			message.font	= pako.inflate( bytebuffer.readBytes( bytebuffer.readVarint32( )).toArrayBuffer(), { to: 'string' });
 			break;
 		default:
 			//Error
@@ -4013,6 +4008,7 @@ function Observer(transport,options)
 	this.factory =  new MessageFactory(); 
 	this.mediaqueries = [];
 	this.scrolling = {};
+	this.inlining = {};
 	//Set defaults
 	this.options = Object.assign({
 		blob: true,
@@ -4035,7 +4031,7 @@ inherits(Observer, EventEmitter);
 
 Observer.prototype.observe = function(exclude,wnd,href)
 {
-	var sendImages = true;
+	var inlineImages = true;
 	//Load objects from this
 	var self = this;
 	var transport = this.transport;
@@ -4207,6 +4203,10 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	}
 	
 	function getExternalImage(id,href) {
+		//Did we had a previous xhr for this id?
+		if (self.inlining.hasOwnProperty (id))
+			//Abort it
+			self.inlining[id].abort();
 		//Get base absolute url
 		var absolute = self.baseURL;
 		//Check if there is a BASE element in the document
@@ -4228,11 +4228,19 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				type		: this.getResponseHeader('content-type'),
 				image		: this.response
 			});
+			//Done
+			delete (self.inlining[id]);
+		});
+		req.addEventListener("error", function(){
+			//Done, I like  to clean my own stuff
+			delete (self.inlining[id]);
 		});
 		
 		//Load css
 		req.open("GET", url);
 		req.send();
+		//Append to map of current requests
+		self.inlining[id] = req;
 	}
 	
 	function matches(node,selector) {
@@ -4266,35 +4274,6 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			//return it
 			return message;
 		});
-	}
-	
-	function sendImageInline(id,img) {
-		try {
-			//Create an empty canvas element
-			var canvas = document.createElement("canvas");
-			//Set same size as image
-			canvas.width = img.width;
-			canvas.height = img.height;
-
-			// Copy the image contents to the canvas
-			var ctx = canvas.getContext("2d");
-			ctx.drawImage(img, 0, 0);
-
-			//Get binary 
-			Utils.canvasToArrayBuffer(canvas,function(buffer){
-			       //Send it after current message, jic
-			       postpone(MessageType.Image,{
-				       target		: id,
-				       type		: "image/png",
-				       image		: buffer
-			       });
-		       },"image/png");
-	       } catch (e) {
-		       //OK reload it instead
-		       getExternalImage(id,img.src);
-	       }
-		
-		
 	}
 	
 	function processIFrame(id,element) {
@@ -4416,20 +4395,13 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				//Remove HREF from anchors
 				cloned.removeAttribute("href");
 			//If we are sending the imgs inline
-			else if (cloned.nodeName==="IMG" && sendImages)
+			else if (cloned.nodeName==="IMG" && inlineImages)
 			{
 				//Remove src
 				cloned.removeAttribute("src");
 				
-				//If img is loaded 
-				if (element.complete)
-					//Send it now
-					sendImageInline(id,element);
-				else 
-					//Send it when loaded
-					element.onload = function(){
-						sendImageInline(id,element);
-					};
+				//Fecth element externally
+				getExternalImage(id,element.src);
 			}
 			//Remove HREF from anchors
 			else if (cloned.nodeName==="IFRAME")
@@ -4710,6 +4682,15 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					queue(MessageType.ChildList,message);
 					break;
 				case "attributes":
+					//Check if we are sending images inline and it was an img src change
+					if (inlineImages && mutation.target.nodeName === "IMG" &&  mutation.attributeName==="src")
+					{
+						//Fetch image and send inline
+						getExternalImage(target,mutation.target.src);
+						//Dont send anything
+						break;
+					}
+					
 					//Was it already handled?
 					if (handled[target])
 					{
@@ -4725,7 +4706,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					if (target===self.document.body && mutation.attributeName==="style")
 						//We may have been resized
 						resized = true;
-						
+					
 					//Mutaion message
 					queue(MessageType.Attributes,{
 						target	: target,
@@ -5000,6 +4981,178 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		});
 	};
 	
+	function processMessage(message,type) {
+		//console.log(message);
+		switch(type)
+		{
+			//Add media queries
+			case MessageType.MediaQueryRequest:
+				var matched = false;
+				var matches = {};
+				//For all media queries
+				for (var k in message.queries)
+				{
+					//Create media query
+					var mql = self.wnd.matchMedia(message.queries[k]);
+					//Set id
+					mql.id = k;
+					//If it is matched
+					if (mql.matches) 
+					{
+						//Push it
+						matches[k] = true;
+						//At least one matched
+						matched = true;
+					}
+					//Push it to the list
+					self.mediaqueries.push(mql);
+					//Listen for changes
+					mql.addListener(self.mediaQueryListener);
+				}
+				//If one matched
+				if (matched)
+				{
+					//Send event
+					queue(MessageType.MediaQueryMatches,{
+						matches: matches
+					});
+				}
+				break;
+			//Click
+			case MessageType.Click:
+				//Get target
+				var target = reverse[message.target];
+				//Click
+				target.click && target.click();
+				break;
+			//Mouse cursor
+			case MessageType.MouseMove:
+				//Move cursor
+				self.emit("remotecursormove",{x: message.x,y: message.y});
+				//Check if we are drawing
+				if (self.path)
+					//Add point
+					self.path.add(message.x,message.y);
+				break;
+			//Selection change
+			case MessageType.SelectionChange:
+				//console.log("Selection change",message);
+				self.highlighter.select({
+					anchorNode: reverse[message.anchorNode],
+					anchorOffset: message.anchorOffset,
+					isCollapsed: message.isCollapsed,
+					startContainer: reverse[message.startContainer],
+					startOffset: message.startOffset,
+					endContainer: reverse[message.endContainer],
+					endOffset: message.endOffset
+				});
+				break;
+			//Paint request
+			case MessageType.Paint:
+				//console.log("Paint",message);
+				// reset the path when starting over
+				if (message.flag)
+					//Create new path
+					self.path = self.canvas.createPath('green');
+				else
+					//Stop old one
+					self.path = null;
+				break;
+			//Clear request
+			case MessageType.Clear:
+				//Clear
+				self.canvas.clear();
+				self.highlighter.clear();
+				//Delete local selection also
+				self.document.getSelection().removeAllRanges();
+				break;
+			//Scrolling
+			case MessageType.Scroll:
+				//Store values on scrolling element list, so we can check later and don't double-scroll
+				scrolling[message.target] = {
+					left: message.left,
+					top: message.top
+				};
+				//Check if it is the window
+				if (!message.target)
+				{
+					//Scroll document
+					self.wnd.scrollTo(message.left,message.top);
+				} else {
+					//Get target
+					var target = reverse[message.target];
+					//if it is in the dcument of an iframe 
+					if (target.nodeType === 9)
+					{
+						//Scroll iframe window
+						target.defaultView.scrollTo(message.left,message.top);
+					} else {
+						//Scroll
+						target.scrollTop = message.top;
+						target.scrollLeft = message.left;
+					}
+				}
+				break;
+			//Update element request
+			case MessageType.UpdateRequest:
+				//Get requested id
+				var id  = message.target;
+				//Get target element
+				var target = reverse[message.target];
+				//If no target
+				if (!target)
+				{	
+					//Retarget to whole body
+					target = self.document.body;
+					id = map.get(target);
+				}
+				//Delete element referencesl
+				release(id,target);
+				//Clone DOM element again and add ids
+				var cloned = clone(target,exclude);
+				//Send event
+				queue(MessageType.ChildList,{
+					target		: map.get(target.parentNode),
+					previous	: map.get(target.previousSibling),
+					next		: map.get(target.nextSibling),
+					added		: [getHTML(cloned)],
+					deleted		: [id]
+				});
+				//Prefill all input values
+				fillInputs(target);
+				//Update scroll after request (JIC)
+				queue(MessageType.Scroll,{
+					target: 0,
+					top: self.wnd.scrollY,
+					left: self.wnd.scrollX
+				});
+				break;
+			//Fecth font
+			case MessageType.FontRequest:
+				//Get requested url
+				var url  = message.url;
+				//Fetch it
+				var xhr = new XMLHttpRequest ();
+				console.log("Requesting font",url);
+				//Set handlers
+				xhr.responseType = "arraybuffer";
+				xhr.addEventListener("load", function(){
+					//Check if we have changed
+					queue(MessageType.Font,{
+						url	: url,
+						type	: this.getResponseHeader('content-type'),
+						font	: this.response
+					});
+				});
+				//Load css
+				xhr.open("GET", url);
+				xhr.send();
+				break;
+			default:
+				console.error("unknown message",message);
+		}	
+	}
+	
 	//Listen for message changes again, as listener has been desroyed 
 	transport.onmessage  = function(message)
 	{	
@@ -5021,185 +5174,18 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		{
 			//Create parser
 			MessageParser.Parse(messages[n])
-				.then(function(parser)
-				{
+				.then(function(parser){
 					//For each message
 					while(parser.hasNext())
 					{		
-
-						//Get nexr parsed message
+						//Get next parsed message
 						var parsed = parser.next();
 						//get type
 						var type = parsed.type;
 						//Get message
 						var message = parsed.message;
-
-						//console.log(message);
-						switch(type)
-						{
-							//Add media queries
-							case MessageType.MediaQueryRequest:
-								var matched = false;
-								var matches = {};
-								//For all media queries
-								for (var k in message.queries)
-								{
-									//Create media query
-									var mql = self.wnd.matchMedia(message.queries[k]);
-									//Set id
-									mql.id = k;
-									//If it is matched
-									if (mql.matches) 
-									{
-										//Push it
-										matches[k] = true;
-										//At least one matched
-										matched = true;
-									}
-									//Push it to the list
-									self.mediaqueries.push(mql);
-									//Listen for changes
-									mql.addListener(self.mediaQueryListener);
-								}
-								//If one matched
-								if (matched)
-								{
-									//Send event
-									queue(MessageType.MediaQueryMatches,{
-										matches: matches
-									});
-								}
-								break;
-							//Click
-							case MessageType.Click:
-								//Get target
-								var target = reverse[message.target];
-								//Click
-								target.click && target.click();
-								break;
-							//Mouse cursor
-							case MessageType.MouseMove:
-								//Move cursor
-								self.emit("remotecursormove",{x: message.x,y: message.y});
-								//Check if we are drawing
-								if (self.path)
-									//Add point
-									self.path.add(message.x,message.y);
-								break;
-							//Selection change
-							case MessageType.SelectionChange:
-								//console.log("Selection change",message);
-								self.highlighter.select({
-									anchorNode: reverse[message.anchorNode],
-									anchorOffset: message.anchorOffset,
-									isCollapsed: message.isCollapsed,
-									startContainer: reverse[message.startContainer],
-									startOffset: message.startOffset,
-									endContainer: reverse[message.endContainer],
-									endOffset: message.endOffset
-								});
-								break;
-							//Paint request
-							case MessageType.Paint:
-								//console.log("Paint",message);
-								// reset the path when starting over
-								if (message.flag)
-									//Create new path
-									self.path = self.canvas.createPath('green');
-								else
-									//Stop old one
-									self.path = null;
-								break;
-							//Clear request
-							case MessageType.Clear:
-								//Clear
-								self.canvas.clear();
-								self.highlighter.clear();
-								//Delete local selection also
-								self.document.getSelection().removeAllRanges();
-								break;
-							//Scrolling
-							case MessageType.Scroll:
-								//Store values on scrolling element list, so we can check later and don't double-scroll
-								scrolling[message.target] = {
-									left: message.left,
-									top: message.top
-								};
-								//Check if it is the window
-								if (!message.target)
-								{
-									//Scroll document
-									self.wnd.scrollTo(message.left,message.top);
-								} else {
-									//Get target
-									var target = reverse[message.target];
-									//if it is in the dcument of an iframe 
-									if (target.nodeType === 9)
-									{
-										//Scroll iframe window
-										target.defaultView.scrollTo(message.left,message.top);
-									} else {
-										//Scroll
-										target.scrollTop = message.top;
-										target.scrollLeft = message.left;
-									}
-								}
-								break;
-							//Update element request
-							case MessageType.UpdateRequest:
-								//Get requested id
-								var id  = message.target;
-								//Get target element
-								var target = reverse[message.target];
-								//If no target
-								if (!target)
-								{	
-									//Retarget to whole body
-									target = self.document.body;
-									id = map.get(target);
-								}
-								//Delete element referencesl
-								release(id,target);
-								//Clone DOM element again and add ids
-								var cloned = clone(target,exclude);
-								//Send event
-								queue(MessageType.ChildList,{
-									target		: map.get(target.parentNode),
-									previous	: map.get(target.previousSibling),
-									next		: map.get(target.nextSibling),
-									added		: [getHTML(cloned)],
-									deleted		: [id]
-								});
-								//Prefill all input values
-								fillInputs(target);
-								//Update scroll after request (JIC)
-								queue(MessageType.Scroll,{
-									target: 0,
-									top: self.wnd.scrollY,
-									left: self.wnd.scrollX
-								});
-								break;
-							//Fecth font
-							case MessageType.FontRequest:
-								//Get requested url
-								var url  = message.target;
-								//Fetch it
-								var xhr = new XMLHttpRequest ();
-								//Set handlers
-								xhr.addEventListener("load", function(){
-									//Check if we have changed
-									queue(MessageType.Font,{
-										url	: url,
-										font	: this.responseText
-									});
-								});
-								//Load css
-								xhr.open("GET", url);
-								xhr.send();
-								break;
-							default:
-								console.error("unknown message",message);
-						}	
+						//Process it
+						processMessage (message,type);
 					}
 				})
 				.catch(function(error){
@@ -5237,18 +5223,34 @@ Observer.prototype.stop = function()
 	for (var i=0;i<this.mediaqueries.length;i++)
 		//Stop listener
 		this.mediaqueries[i].removeListener(this.mediaQueryListener);
+	//Clean pending request
+	for (var k in this.inlining)
+		//Stop them
+		this.inlining[k].abort();
+	//Clean map
+	this.inlining = {};
 	
 	//Remove DOM event listeners
-	this.document.removeEventListener("mouseup", this.mouseup ,true);
-	this.document.removeEventListener("mousemove", this.onmousemove ,true);
-	this.document.removeEventListener("mouseover", this.onmouseover, true);
-	this.document.removeEventListener("focus", this.onfocus, true);
-	this.document.removeEventListener("blur", this.onblur, true);
-	this.document.removeEventListener("input", this.oninput, true);
-	this.document.removeEventListener("change", this.onchange, true);
-	this.document.removeEventListener("selectionchange", this.onselectionchange, true);
-	this.wnd.removeEventListener("resize", this.onresize , true);
-	this.wnd.removeEventListener("scroll", this.onscroll , true);
+	function unlisten(wnd) {
+		var doc = wnd.document;
+		//Remove all 
+		doc.removeEventListener("mouseup", this.mouseup ,true);
+		doc.removeEventListener("mousemove", this.onmousemove ,true);
+		doc.removeEventListener("mouseover", this.onmouseover, true);
+		doc.removeEventListener("focus", this.onfocus, true);
+		doc.removeEventListener("blur", this.onblur, true);
+		doc.removeEventListener("input", this.oninput, true);
+		doc.removeEventListener("change", this.onchange, true);
+		doc.removeEventListener("selectionchange", this.onselectionchange, true);
+		wnd.removeEventListener("resize", this.onresize , true);
+		wnd.removeEventListener("scroll", this.onscroll , true);
+		//For all childrens
+		for (var i=0;i<wnd.frames.length;i++)
+			//Unlisten recursivelly
+			unlisten(wnd.frames[i]);
+	}
+	//Remove all event listeners
+	unlisten(this.wnd);
 	//remove maps
 	this.map = new WeakMap();
 	this.reverse = {};
@@ -5741,33 +5743,67 @@ Reflector.prototype.reflect = function(mirror,options)
 					keepOrder = true;
 				//Check if it is a CSSFont
 				} else if (rules[i].type===CSSRule.FONT_FACE_RULE) {
-					//We don't reorder font rules, who is going to re-write a font-family or set it inside a media query???
-					
-					//Get urls 
-					var srcs = rules[i].style.src.split(", ");
-					//For each one
-					for (var j=0;j<srcs.length;++j)
+					//Check if we have css in the buffer
+					if (remaining)
 					{
+						//Create new element
+						var el = mirror.createElement("style");
+						//Append html styles
+						el.innerHTML = remaining;
+						//Append befor next one
+						parent.insertBefore(el,next);
+						//Append to childs
+						childs.push(el);
+						//Clean reamining
+						remaining = "";
+					}
+					
+					//Create new element
+					var el = mirror.createElement("style");
+					//Append css font definition
+					el.innerHTML = rules[i].cssText;
+					//Append befor next one
+					parent.insertBefore(el,next);
+					//Append to childs
+					childs.push(el);
+					
+					//For each urls
+					rules[i].style.src.split(", ").forEach(function(src,pos) {
 						var font;
-						//Get url
-						var url = Font.getURL(srcs[j]);
+						//Get relative url
+						var relative = Font.getURL(src);
+						//Make it absolute just in case, needed for local stylesheets
+						var url = new URL(relative,self.remoteUrl).toString();
+
 						//Check if it is already on fonts
 						if (self.fonts.hasOwnProperty (url))
+						{
 							//Get font
-							font = self.fonts(url);
-						else
+							font = self.fonts[url];
+						} else {
 							//Create font
-							font = new Font(url,function(){
+							font = new Font(relative,url,function(){
+								console.log("requesting font "+url);
 								//Request font update if not found
 								queue(MessageType.FontRequest,{
 									url: url
 								});
 							});
+							//Store on fonts
+							self.fonts[url] = font;
+						}
 						//Add this rule
-						font.addRule(rules[i],j);
-					}
-					//Next
-					i++;
+						font.addStyle(el);
+					});
+					
+					el.dataset["swisFontFamily"] = rules[i].style["font-family"];
+					
+					//Remove the media rules
+					stylesheet.removeRule(i);
+					
+					//We need to keep order of following css rules
+					keepOrder = true;
+					
 				} else {
 					
 					//Check if its a CSSRule
@@ -5811,6 +5847,9 @@ Reflector.prototype.reflect = function(mirror,options)
 
 	function init(href,html)
 	{
+		//Store remote url
+		self.remoteUrl = href;
+		
 		//Clean mirrir before populating it
 		while (mirror.childNodes.length)
 			//Delete it
@@ -6279,13 +6318,13 @@ Reflector.prototype.reflect = function(mirror,options)
 									break;
 								//Set exteranl Font
 								case MessageType.Font:
-									//console.log("External Font content",message.url);
+									console.log("External Font content",message.url);
 									//Get font
-									var font = self.fonts(message.url);
+									var font = self.fonts[message.url];
 									//If found
 									if (font)
 										//Update contents
-										font.update(message.font);
+										font.update(message.font,message.type);
 									//Reset
 									break;
 								default:
@@ -6689,9 +6728,11 @@ function getWindowOffset(window,top)
 	
 	while (window!==top)
 	{
+		//Get bunding rect
+		var rect = window.frameElement.getBoundingClientRect();
 		//Update offset with current window
-		offset.x += window.frameElement.offsetLeft;
-		offset.y += window.frameElement.offsetTop;
+		offset.x += rect.left + window.frameElement.clientLeft;
+		offset.y += rect.top + window.frameElement.clientTop;
 		//Go to parent
 		window = window.parent;
 	}
