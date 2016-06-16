@@ -341,10 +341,20 @@ function Canvas(document)
 	this.paths = [];
 	//Store document
 	this.document = document;
+	// Create container
+	this.container = document.createElement('div');
+	this.container.style["pointer-events"] = "none";
+	this.container.style.position="absolute";
+	this.container.style.overflow = 'hidden';
+	this.container.style.left="0px";
+	this.container.style.top="0px";
+	this.container.style.width="100%";
+	this.container.style.heigth="100%";
+	this.container.style.zIndex="2147483646";
 	// Create a blank div where we are going to put the canvas into.
 	this.canvas = document.createElement('canvas');
 	this.canvas.style["pointer-events"] = "none";
-	this.canvas.style.position="absolute";
+	this.canvas.style.position="relative";
 	this.canvas.style.overflow = 'visible';
 	this.canvas.style.left="0px";
 	this.canvas.style.top="0px";
@@ -354,13 +364,15 @@ function Canvas(document)
 	//Resize
 	this.resize();
 	// Add int into the container
-	document.body.appendChild(this.canvas);
+	this.container.appendChild(this.canvas);
+	//Add into body
+	document.body.appendChild(this.container);
 }
 
 Canvas.prototype.contains = function(el)
 {
 	//Check if element is our canvas
-	return this.canvas === el;
+	return this.canvas === el || this.container === el;
 };
 
 Canvas.prototype.enablePointerEvents = function(flag)
@@ -447,7 +459,8 @@ Canvas.prototype.close = function() {
 	//Empty current
 	this.current = null;
 	//Remove canvas
-	this.canvas.remove();
+	this.context = null;
+	this.container.remove();
 };
 
 module.exports = Canvas;
@@ -476,8 +489,14 @@ function Font(original,href,requestRemote)
 
 Font.getURL = function(src)
 {
-	return src.match(/url\s*\(\s*['"]?\s*([^\s"']*)\s*['"]?\s*\)/)[1];
-}
+	var res = src.match(/url\s*\(\s*['"]?\s*([^\s"']*)\s*['"]?\s*\)/);
+	//If not found
+	if (!res || res.length<1)
+		//Nothing
+		return null;
+	//Returl url
+	return res[1];
+};
 
 Font.prototype.update = function(font,type)
 {
@@ -4019,6 +4038,7 @@ var canvasColor = "#ffc820";
 function Observer(transport,options)
 {
 	this.transport = transport;
+	this.observers = new WeakMap();
 	this.map = new WeakMap();
 	this.reverse = {};
 	this.factory =  new MessageFactory(); 
@@ -4218,24 +4238,20 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		req.send();
 	}
 	
-	function getExternalImage(id,href) {
+	function cancelExternalImage(id) {
 		//Did we had a previous xhr for this id?
 		if (self.inlining.hasOwnProperty (id))
+		{
 			//Abort it
 			self.inlining[id].abort();
-		//Check if we are removing the src attribute
-		if (!href)
-		{
-			//Check if we have changed
-			queue(MessageType.AttributesRemove,{
-				target		: id,
-				key		: "src"
-			});
 			//Done
 			delete (self.inlining[id]);
-			//Exit
-			return;
 		}
+	}
+	
+	function getExternalImage(id,href) {
+		//Cancel previous attemps
+		cancelExternalImage(id);
 		//Get base absolute url
 		var absolute = self.baseURL;
 		//Check if there is a BASE element in the document
@@ -4356,6 +4372,8 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			characterData: true,
 			subtree: true
 		});
+		//Add to observers
+		self.observers.set(doc,observer);
 		
 		//Add iframe event listeners
 		doc.addEventListener ("mousemove", self.onmousemove,true);
@@ -4421,14 +4439,15 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			
 			//Specific for each node type
 			if (cloned.nodeName==="A")
+			{
 				//Remove HREF from anchors
 				cloned.removeAttribute("href");
+			}
 			//If we are sending the imgs inline
-			else if (cloned.nodeName==="IMG" && inlineImages)
+			else if (cloned.nodeName==="IMG" && inlineImages && element.hasAttribute("src"))
 			{
 				//Remove src
 				cloned.removeAttribute("src");
-				
 				//Fecth element externally
 				getExternalImage(id,element.src);
 			}
@@ -4445,13 +4464,19 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				},0);
 				//Set scroll event on content window
 				element.contentWindow.addEventListener("scroll",self.onscroll,true);
+			} 
 			//Change BASE href
-			} else if (cloned.nodeName==="BASE")
+			else if (cloned.nodeName==="BASE")
+			{
 				//Change href
 				cloned.setAttribute("href", new URL(cloned.getAttribute("href"),self.baseURL).toString());
+			}
+			//Do not allow autocomplete on input 
 			else if (cloned.nodeName==="INPUT")
+			{
 				//Remove autocomplete
 				cloned.setAttribute("autocomplete","off");
+			}
 			//Nodes that already were 
 			var existing = null;
 			//Previous text node
@@ -4711,14 +4736,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					queue(MessageType.ChildList,message);
 					break;
 				case "attributes":
-					//Check if we are sending images inline and it was an img src change
-					if (inlineImages && mutation.target.nodeName === "IMG" &&  mutation.attributeName==="src")
-					{
-						//Fetch image and send inline
-						getExternalImage(target,mutation.target.src);
-						//Dont send anything
-						break;
-					}
+					
 					
 					//Was it already handled?
 					if (handled[target])
@@ -4738,18 +4756,29 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					
 					//check if element has the attribute or if we are removing it
 					if (mutation.target.hasAttribute(mutation.attributeName))
-						//Mutaion message
-						queue(MessageType.Attributes, {
-							target	: target,
-							key	: mutation.attributeName,
-							value	: mutation.target.getAttribute(mutation.attributeName)
-						});
-					else 
+					{
+						//Check if we are sending images inline and it was an img src change
+						if (inlineImages && mutation.target.nodeName === "IMG" &&  mutation.attributeName==="src")
+							//Fetch image and send inline
+							getExternalImage(target,mutation.target.src);
+						else
+							//Mutaion message
+							queue(MessageType.Attributes, {
+								target	: target,
+								key	: mutation.attributeName,
+								value	: mutation.target.getAttribute(mutation.attributeName)
+							});
+					} else  {
+						//Check if we are sending images inline and it was an img src change
+						if (inlineImages && mutation.target.nodeName === "IMG" &&  mutation.attributeName==="src")
+							//Cancel any previous attempt
+							cancelExternalImage (target);
 						//Mutaion message
 						queue(MessageType.AttributesRemove, {
 							target	: target,
 							key	: mutation.attributeName
 						});
+					}
 					//Append to handled attributes
 					handled[target][mutation.attributeName] = true;
 					break;
@@ -4793,15 +4822,18 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	};
 	
 	//Listen for changes
-	this.observer = new MutationObserver (mutator);
+	var observer = new MutationObserver (mutator);
 
 	// pass in the target node, as well as the observer options
-	this.observer.observe (self.document, {
+	observer.observe (self.document, {
 		attributes: true,
 		childList: true,
 		characterData: true,
 		subtree: true
 	});
+	
+	//Add to map
+	this.observers.set(self.document,observer);
 	
 	self.document.addEventListener ("mousemove", (this.onmousemove = function (event) {
 		//Get offset of event window
@@ -5240,14 +5272,15 @@ Observer.prototype.observe = function(exclude,wnd,href)
 
 Observer.prototype.stop = function()
 {
+	var self = this;
+	
 	//If not inited
 	if (!this.inited)
 		//Do nothing
 		return;
 	//Clear timer (jic)
 	clearTimeout (this.timer);
-	//Stop mutation observer
-	this.observer.disconnect();
+	
 	//Clear message factory
 	this.factory.reset();
 	//SClose canvas
@@ -5270,17 +5303,23 @@ Observer.prototype.stop = function()
 	//Remove DOM event listeners
 	function unlisten(wnd) {
 		var doc = wnd.document;
+		//Get observer for doc
+		var observer = self.observers.get(doc);
+		//If found
+		if (observer)
+			//Stop it
+			observer.disconnect();
 		//Remove all 
-		doc.removeEventListener("mouseup", this.mouseup ,true);
-		doc.removeEventListener("mousemove", this.onmousemove ,true);
-		doc.removeEventListener("mouseover", this.onmouseover, true);
-		doc.removeEventListener("focus", this.onfocus, true);
-		doc.removeEventListener("blur", this.onblur, true);
-		doc.removeEventListener("input", this.oninput, true);
-		doc.removeEventListener("change", this.onchange, true);
-		doc.removeEventListener("selectionchange", this.onselectionchange, true);
-		wnd.removeEventListener("resize", this.onresize , true);
-		wnd.removeEventListener("scroll", this.onscroll , true);
+		doc.removeEventListener("mouseup", self.mouseup ,true);
+		doc.removeEventListener("mousemove", self.onmousemove ,true);
+		doc.removeEventListener("mouseover", self.onmouseover, true);
+		doc.removeEventListener("focus", self.onfocus, true);
+		doc.removeEventListener("blur", self.onblur, true);
+		doc.removeEventListener("input", self.oninput, true);
+		doc.removeEventListener("change", self.onchange, true);
+		doc.removeEventListener("selectionchange", self.onselectionchange, true);
+		wnd.removeEventListener("resize", self.onresize , true);
+		wnd.removeEventListener("scroll", self.onscroll , true);
 		//For all childrens
 		for (var i=0;i<wnd.frames.length;i++)
 			//Unlisten recursivelly
@@ -5289,6 +5328,7 @@ Observer.prototype.stop = function()
 	//Remove all event listeners
 	unlisten(this.wnd);
 	//remove maps
+	this.observers = new WeakMap();
 	this.map = new WeakMap();
 	this.reverse = {};
 	this.factory =  new MessageFactory(); 
@@ -5811,6 +5851,10 @@ Reflector.prototype.reflect = function(mirror,options)
 						var font;
 						//Get relative url
 						var relative = Font.getURL(src);
+						//If not an url() format
+						if (!relative)
+							//Skip
+							return;
 						//Make it absolute just in case, needed for local stylesheets
 						var url = new URL(relative,self.remoteUrl).toString();
 
@@ -5910,10 +5954,12 @@ Reflector.prototype.reflect = function(mirror,options)
 		
 		//Listen mouse events
 		mirror.addEventListener ("click",(self.onclick = function (e) {
-			//Send clieck
-			queue(MessageType.Click,{
-				target: map.get(e.target)
-			});
+			//If we are not painting
+			if (!self.painting)
+				//Send clieck
+				queue(MessageType.Click,{
+					target: map.get(e.target)
+				});
 			//Stop submission
 			e.preventDefault();
 			//Exit
@@ -6293,8 +6339,8 @@ Reflector.prototype.reflect = function(mirror,options)
 								case MessageType.Resize:
 									//console.log("Resized",message);
 									//Set document size
-									//mirror.documentElement.style.width  = message.documentWidth  + "px";
-									//mirror.documentElement.style.height = message.documentHeight + "px";
+									mirror.documentElement.style.width  = message.documentWidth  + "px";
+									mirror.documentElement.style.height = message.documentHeight + "px";
 									//Event
 									self.emit("resize",{
 										width: message.width,
