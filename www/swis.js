@@ -4886,7 +4886,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		//Set handlers
 		req.addEventListener("load", function(){
 			//Check if we have changed
-			queue(MessageType.Image,{
+			postpone(MessageType.Image,{
 				target		: id,
 				type		: this.getResponseHeader('content-type'),
 				image		: this.response
@@ -5093,8 +5093,21 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			//Do not allow autocomplete on input 
 			else if (cloned.nodeName==="INPUT")
 			{
+				//IF it is an IMAGE type
+				if (inlineImages && (cloned.type || "").toLowerCase()==="image")
+				{
+					//Set src to 1x1 transparent gif so it can be overriden later
+					cloned.setAttribute("src","data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+					//Set it in next run, sometimes it is not drawn on reflector if so
+					setTimeout (function(){
+						//Fecth element externally
+						getExternalImage(id,element.src);
+					},0);
+				}
 				//Remove autocomplete
 				cloned.setAttribute("autocomplete","off");
+				
+				
 			}
 			//Nodes that already were 
 			var existing = null;
@@ -5376,8 +5389,10 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					//check if element has the attribute or if we are removing it
 					if (mutation.target.hasAttribute(mutation.attributeName))
 					{
-						//Check if we are sending images inline and it was an img src change
-						if (inlineImages && mutation.target.nodeName === "IMG" &&  mutation.attributeName==="src")
+						//Check if we are sending images (img or input type image) inline and it was an img src change
+						if (inlineImages 
+							&& ( mutation.target.nodeName === "IMG" || (mutation.target.nodeName==="INPUT" && (mutation.target.type || "").toLowerCase()==="image"))
+							&&  mutation.attributeName==="src")
 							//Fetch image and send inline
 							getExternalImage(target,mutation.target.src);
 						else
@@ -5506,6 +5521,12 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		//which is not liked by chrome
 		if (e.target===self.document)
 			//Ignore it then
+			return;
+		//Get target
+		var target = map.get(e.target);
+		//If not yet observed
+		if (!target)
+			//TODO: handle focused elements on mutation events
 			return;
 		//Check if we have changed
 		queue(MessageType.Focus,{
@@ -5821,7 +5842,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				var url  = message.url;
 				//Fetch it
 				var xhr = new XMLHttpRequest ();
-				console.log("Requesting font",url);
+				//console.log("Requesting font",url);
 				//Set handlers
 				xhr.addEventListener("load", function(){
 					//Check if we have changed
@@ -6485,7 +6506,7 @@ Reflector.prototype.reflect = function(mirror,options)
 						} else {
 							//Create font
 							font = new Font(relative,url,function(){
-								console.log("requesting font "+url);
+								//console.log("requesting font "+url);
 								//Request font update if not found
 								queue(MessageType.FontRequest,{
 									url: url
@@ -7016,7 +7037,7 @@ Reflector.prototype.reflect = function(mirror,options)
 									break;
 								//Scrolling
 								case MessageType.Scroll:
-									console.log("Scroll",message);
+									//console.log("Scroll",message);
 									//Store values on scrolling element list, so we can check later and don't double-scroll
 									scrolling[message.target] = {
 										left: message.left,
@@ -7047,7 +7068,7 @@ Reflector.prototype.reflect = function(mirror,options)
 									break;
 								//Set exteranl Font
 								case MessageType.Font:
-									console.log("External Font content",message.url);
+									//console.log("External Font content",message.url);
 									//Get font
 									var font = self.fonts[message.url];
 									//If found
@@ -7158,7 +7179,7 @@ Reflector.prototype.reflect = function(mirror,options)
 				//If not found
 				if (!target)
 					//Ignore it
-					return console.log("onscroll: !target");
+					return;
 				
 			}
 			//Get values
@@ -7170,10 +7191,8 @@ Reflector.prototype.reflect = function(mirror,options)
 				//Ok here it is the event
 				delete(self.scrolling[target]);
 				//Ignore it
-				return console.log("scroll event was produced by a RemoteScroll");
+				return;
 			}
-			
-			console.log("left:"+left+" top:"+top);
 			//Check if we have changed
 			self.queue(MessageType.Scroll,{
 				target: target,
