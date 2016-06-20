@@ -4718,8 +4718,8 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				return;
 		} 
 		//Get values
-		top  = e.target.scrollTop || e.currentTarget.scrollY;
-		left = e.target.scrollLeft || e.currentTarget.scrollX;
+		top  = typeof e.target.scrollTop  === "number" ? e.target.scrollTop  : e.currentTarget.scrollY;
+		left = typeof e.target.scrollLeft === "number" ? e.target.scrollLeft : e.currentTarget.scrollX;
 
 		//Check if scroll event was produced by a RemoteScroll
 		if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
@@ -5081,7 +5081,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				setTimeout(function(){
 					processIFrame(id,element);
 					//Set scroll event on content window
-					element.contentWindow.addEventListener("scroll",self.onscroll,true);
+					element.contentWindow.addEventListener("scroll",self.onscroll,{passive:true,capture:true});
 				},0);
 			} 
 			//Change BASE href
@@ -5246,8 +5246,8 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	}
 	
 	//Clone DOM
-	var cloned = clone(self.document.documentElement,exclude);
-	/*
+	var cloned = clone(self.document,exclude);
+	
 	//Check if there is a BASE element in the document
 	if (!cloned.querySelector("base"))
 	{
@@ -5260,7 +5260,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		//Append to head in the cloned doc
 		cloned.querySelector("head").appendChild(base);
 	}
-	*/
+	
 	//Start with the doctype
 	var html = doctype;
 	//For each node of the document
@@ -5614,7 +5614,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	}), true);
 
 	
-	self.wnd.addEventListener("scroll", this.onscroll,true);
+	self.wnd.addEventListener("scroll", this.onscroll,{passive:true,capture:true});
 	
 	self.wnd.addEventListener("resize", (this.onresize = function(e){
 		//Check if we have changed
@@ -5938,7 +5938,7 @@ Observer.prototype.stop = function()
 		doc.removeEventListener("change", self.onchange, true);
 		doc.removeEventListener("selectionchange", self.onselectionchange, true);
 		wnd.removeEventListener("resize", self.onresize , true);
-		wnd.removeEventListener("scroll", self.onscroll , true);
+		wnd.removeEventListener("scroll", self.onscroll , {passive:true,capture:true});
 		//For all childrens
 		for (var i=0;i<wnd.frames.length;i++)
 			//Unlisten recursivelly
@@ -6639,7 +6639,7 @@ Reflector.prototype.reflect = function(mirror,options)
 		}), true);
 		
 		//Start listiening scroll events
-		mirror.defaultView.addEventListener("scroll",self.onscroll,true);
+		mirror.defaultView.addEventListener("scroll",self.onscroll,{passive:true,capture:true});
 		//Fire inited
 		self.emit("init",{href:href});
 	};
@@ -6673,7 +6673,7 @@ Reflector.prototype.reflect = function(mirror,options)
 		mirror.addEventListener("submit", self.onsubmit, true);
 		//Start listiening scroll events
 		//mirror.addEventListener("scroll",self.onscroll,true);
-		window.addEventListener("scroll",self.onscroll,true);
+		window.addEventListener("scroll",self.onscroll,{passive:true,capture:true});
 	};
 
 	transport.onmessage = function(message)
@@ -7016,7 +7016,7 @@ Reflector.prototype.reflect = function(mirror,options)
 									break;
 								//Scrolling
 								case MessageType.Scroll:
-									//console.log("Scroll",message);
+									console.log("Scroll",message);
 									//Store values on scrolling element list, so we can check later and don't double-scroll
 									scrolling[message.target] = {
 										left: message.left,
@@ -7158,20 +7158,22 @@ Reflector.prototype.reflect = function(mirror,options)
 				//If not found
 				if (!target)
 					//Ignore it
-					return;
+					return console.log("onscroll: !target");
 				
 			}
 			//Get values
-			top  = e.target.scrollTop || e.currentTarget.scrollY;
-			left = e.target.scrollLeft || e.currentTarget.scrollX;
+			top  = typeof e.target.scrollTop  === "number" ? e.target.scrollTop  : e.currentTarget.scrollY;
+			left = typeof e.target.scrollLeft === "number" ? e.target.scrollLeft : e.currentTarget.scrollX;
 			//Check if scroll event was produced by a RemoteScroll
 			if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
 			{
 				//Ok here it is the event
 				delete(self.scrolling[target]);
 				//Ignore it
-				return;
+				return console.log("scroll event was produced by a RemoteScroll");
 			}
+			
+			console.log("left:"+left+" top:"+top);
 			//Check if we have changed
 			self.queue(MessageType.Scroll,{
 				target: target,
@@ -7361,7 +7363,7 @@ Reflector.prototype.stop = function()
 	this.mirror.removeEventListener("mousemove",this.onmousemove,true);
 	this.mirror.removeEventListener("selectionchange",this.onselectionchange,true);
 	this.mirror.removeEventListener("submit",this.onsubmit,true);
-	this.mirror.defaultView.removeEventListener("scroll",this.onscroll,true);
+	this.mirror.defaultView.removeEventListener("scroll",this.onscroll,{passive:true,capture:true});
 	this.mirror.defaultView.removeEventListener("resize",this.onresize,true);
 	//Clean mirror
 	this.mirror.documentElement.remove();
