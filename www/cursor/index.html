@@ -1,0 +1,87 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <style>
+
+  body{ background-color: #86d5e9;}
+
+	.roll{
+		position: absolute;
+		display: block;
+		width: 50px;
+		height: 50px;
+	}
+	.roll > .roll-image{
+	    -webkit-box-shadow: 0px 0px 10px 2px rgba(0,0,0,0.25);
+	    -moz-box-shadow:    0px 0px 10px 2px rgba(0,0,0,0.25);
+	    box-shadow:         0px 0px 10px 2px rgba(0,0,0,0.25);
+
+		-webkit-border-radius: 50%;
+		-moz-border-radius:    50%;
+		-o-border-radius:      50%;
+		border-radius:         50%;
+
+		width: 40px;
+		height: 40px;
+		padding: 5px;
+		background-color: #fff;
+	}
+	.roll > .roll-arrow{
+		position: absolute;
+		top: 0px;
+		left: 0px;
+		width: 50px;
+		height: 50px;
+	}
+
+	.roll > .roll-arrow > .roll-image{
+		position: absolute;
+		top: -15px;
+		left: 15px;
+		width: 20pk;
+		height: 20px;
+	}
+	
+	.roll-animation {
+	  transform: rotate(-45deg);
+	}
+	
+	.name {
+		position: absolute;
+		overflow: hidden;
+		height: 35px;
+		width: 120px;
+		left: 40px;
+		top: 15;
+			
+		-webkit-border-radius: 5%;
+		-moz-border-radius:    5%;
+		-o-border-radius:      5%;
+		border-radius:         5%;
+		background-color: #fff;
+	}
+
+	
+  </style>
+</head>
+<body>
+	<div class="roll">
+		<div class="name">Lidia pescuezo</div>
+		<img class="roll-image" src="img/lidia.jpg">
+		<div class="roll-arrow roll-animation">
+			<img class="roll-image" src="img/arrow.png">
+		</div>
+		
+	</div>
+</body>
+</html>
+<script>
+	document.addEventListener("mousemove",function(evt){
+		document.querySelector(".roll").style["left"] = evt.pageX + "px";
+		document.querySelector(".roll").style["top"] = evt.pageY + "px";
+	});
+</script>
+

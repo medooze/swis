@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+	<head>
+	<script>
+		document.addEventListener("mouseup",function(){
+			console.log("mouseup",document.getElementsByTagName("textarea")[0].style.width);
+		},true);
+		
+		var mo = new MutationObserver (function (mutations) {
+			console.log("mutations",mutations);
+		});
+		mo.observe(document.documentElement,{
+			attributes: true,
+			childList: true,
+			characterData: true,
+			subtree: true
+		});
+	</script>
+</head>
+	<body>
+	<textarea></textarea>
+	</body>
+</html>

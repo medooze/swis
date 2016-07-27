@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<!-- release v4.3.2, copyright 2014 - 2015 Kartik Visweswaran -->
+<html lang="en">
+    <head>
+        <meta charset="UTF-8"/>
+        <title>Krajee JQuery Plugins - &copy; Kartik</title>
+        <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://rawgit.com/kartik-v/bootstrap-fileinput/master/css/fileinput.css" media="all" rel="stylesheet" type="text/css" />
+        <script src="http://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+        <script src="https://rawgit.com/kartik-v/bootstrap-fileinput/master/js/fileinput.js" type="text/javascript"></script>
+        <script src="https://rawgit.com/kartik-v/bootstrap-fileinput/master/js/fileinput_locale_fr.js" type="text/javascript"></script>
+        <script src="https://rawgit.com/kartik-v/bootstrap-fileinput/master/js/fileinput_locale_es.js" type="text/javascript"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js" type="text/javascript"></script>
+    </head>
+    <body>
+        <div class="container kv-main">
+            <div class="page-header">
+            <h1>Bootstrap File Input Example <small><a href="https://github.com/kartik-v/bootstrap-fileinput-samples"><i class="glyphicon glyphicon-download"></i> Download Sample Files</a></small></h1>
+            </div>
+            <form enctype="multipart/form-data">
+                <input id="file-0a" class="file" type="file" multiple data-min-file-count="1">
+                <br>
+                <button type="submit" class="btn btn-primary">Submit</button>
+                <button type="reset" class="btn btn-default">Reset</button>
+            </form>
+	</div>
+    </body>
+</html>
+
+<script src="swis.js"></script>
+<script>
+	
+	
+	setTimeout (function () {
+		//$("#file-0b").fileinput();
+	}, 5000);
+
+
+	var transport = {
+		send : function(data) {
+			//Convert to json and send
+			wnd.postMessage(data, "*");
+		}
+	};
+	
+	var wnd = window.open("viewer.html","viewer","width=400px");
+	var observer = new swis.Observer(transport,{chunk:200});
+	setTimeout(function(){
+		observer.observe(".cursor");
+	},2000);	
+
+	window.addEventListener("message",function(message){
+		transport.onmessage(message.data);
+	});	
+
+	var remoteCursor;
+	observer.on("remotecursormove",function(data){
+		//Check if first cursor
+		if (!remoteCursor)
+		{
+			//Create new element
+			remoteCursor = document.createElement("div");
+			//Set class
+			remoteCursor.className = "cursor";
+			//Set absolute positioning
+			remoteCursor.style["pointer-events"] = "none";
+			remoteCursor.style["position"] = "absolute";
+			remoteCursor.style["width"] = "150px";
+			remoteCursor.style["height"] = "25px";
+			remoteCursor.style["border"] = "1px black solid";
+			remoteCursor.style["background-color"] = "green";
+			remoteCursor.style["color"] = "white";
+			remoteCursor.style["margin"] = "0px";
+			remoteCursor.style["padding"] = "0px";
+			remoteCursor.style["z-index"] = "2147483647";
+			//Set text
+			remoteCursor.innerHTML = "^Remote Cursor";
+			//Insert into
+			document.documentElement.appendChild(remoteCursor);
+		}
+		//Set new position
+		remoteCursor.style["left"] = data.x + "px";
+		remoteCursor.style["top"] =  data.y + "px";
+	});
+	
+	
+</script>

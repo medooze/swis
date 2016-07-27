@@ -1,0 +1,72 @@
+<html>
+    <head><style type="text/css">
+.canvasStyle { border: 1px solid #000; width:300px; height:300px;}
+</style>
+</head>
+    <body>
+<p>This is a guide of how to use HTML 5 Canvas, as well as some JavaScript/css tricks to enable drawing on top of a web page.  To see the result of this tutorial, open <a href="http://permadi.com/blog/?p=383. ">http://permadi.com/blog/?p=383. </a></p>
+
+<p>Canvas introduction is covered <a href="http://www.permadi.com/tutorial/jsCanvasGrayscale/index.html">here</a> and <a href="http://permadi.com/blog/?p=333">here</a>.</p>
+
+
+<h2>Creating The Canvas Object</h2>
+
+
+<p>You do not have to create a canvas object.</p>
+<canvas id="myCanvas" class="canvasStyle">hello</div>
+<pre id="line1">[code]&amp;amp;lt;&lt;span class="start-tag"&gt;style&lt;/span&gt;&lt;span class="attribute-name"&gt; type&lt;/span&gt;=&lt;span class="attribute-value"&gt;"text/css"&lt;/span&gt;&amp;amp;gt;
+canvas { border: 2px solid #000; float: left; margin-right: 20px; margin-bottom: 20px; }
+&amp;amp;lt;/style&amp;amp;gt;
+[/code]
+</pre>
+
+
+<p>See <a href="https://developer.mozilla.org/samples/canvas-tutorial/2_1_canvas_rect.html">https://developer.mozilla.org/samples/canvas-tutorial/2_1_canvas_rect.html</a> for more details.</p>
+
+<pre>[code]document.createElement('canvas');[/code]
+</pre>
+
+
+<p>To specify the dimensions, you should set the Canvas's width and height, as well as the style's width and height.  If you only specifies the style width and height, then the canvas will be stretched to fit the parent's (container's) div.</p>
+
+<pre>[code]
+    myCanvas=document.createElement('canvas');
+    myCanvas.style.width = containerDiv.offsetWidth+"px";
+    myCanvas.style.height = containerDiv.offsetHeight+"px";
+    // You must set this otherwise the canvas will be streethed to fit the container
+    myCanvas.width=containerDiv.offsetWidth;
+    myCanvas.height=containerDiv.offsetHeight;
+[/code]
+</pre>
+
+
+<p>When first created, the Canvas will be blank and transparent.  You can draw on it using commands such as lineTo, .  For example,</p>
+
+<pre>[code]
+  var context = myCanvas.getContext("2d");
+  context.fillRect(0,0, 250, 250);
+[/code]
+</pre>
+
+
+<p>Below is an example of Canvas created with this code:</p>
+
+<pre>[code]
+  myCanvas=document.createElement('canvas');
+  myCanvas.style.width = containerDiv.offsetWidth+"px";
+  myCanvas.style.height = containerDiv.offsetHeight+"px";
+  // You must set this otherwise the canvas will be streethed to fit the container
+  myCanvas.width=containerDiv.offsetWidth;
+  myCanvas.height=containerDiv.offsetHeight;
+  var context = myCanvas.getContext("2d");
+  context.fillRect(0,0, 250, 250);
+[/code]</pre>
+
+<script type="text/javascript">
+  alert("a");
+  myCanvas=document.getElementById('myCanvas');
+  var context = myCanvas.getContext("2d");
+  context.fillRect(0,0, 250, 250);
+</script>
+</body>
+</html>

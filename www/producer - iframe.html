@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>jQuery UI Sortable - Default functionality</title>
+  <link rel="stylesheet" href="https://eface2face.com/css/eface2face.css">
+  <link rel="stylesheet" href="http://code.jquery.com/ui/1.11.4/themes/smoothness/jquery-ui.css">
+  <link rel="stylesheet" href="https://jqueryui.com/resources/demos/style.css">
+  <script src="http://code.jquery.com/jquery-1.10.2.js"></script>
+  <script src="http://code.jquery.com/ui/1.11.4/jquery-ui.js"></script>
+  <style>
+	  html {
+		  padding: 2px;
+		  margin: 2px;
+		  border: 2px solid yellow;
+		  width: 90%;
+	  }
+  #sortable { list-style-type: none; margin: 0; padding: 0; width: 60%; }
+  #sortable li { margin: 0 3px 3px 3px; padding: 0.4em; padding-left: 1.5em; font-size: 1.4em; height: 18px; }
+  #sortable li span { position: absolute; margin-left: -1.3em; }
+  
+  </style>
+  <style>
+@media (min-width: 400px)  {
+  .mod {
+    background-color: red;
+  }
+}
+@media (orientation: landscape)  {
+  .mod {
+    color: green;
+  }
+  div { padding: 20px;}
+}
+</style>
+<style>
+	.mod:after {
+		content: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40"…"50" cy="50" r="50" fill="none" stroke="#ededed" stroke-width="3"/></svg>');
+	}
+	@font-face {
+    font-family: myFirstFont;
+    src: url(sansation_light.woff);
+}
+	div { padding: 0px;}
+@media (min-width: 400px)  {
+  .del {
+    background-color: yellow;
+  }
+}
+</style>
+  <script>
+  $(function() {
+    $( "#sortable" ).sortable();
+    $( "#sortable" ).disableSelection();
+  });
+  </script>
+  	<style>
+		body {
+			background-color: blue;
+			color: white;
+		}
+		.red {
+			color: red;
+		}
+		.scroll {
+			width: 400px;
+			height: 200px;
+			overflow: scroll
+			
+		}
+		div {
+			border: 1px solid grey;
+			margin-left: 5px;
+		}
+		div:hover {
+			background-color: green;
+		}
+	</style>
+	<style>
+	.remote-cursor-container {
+		position: absolute;
+		pointer-events: none;
+		top: 0px;
+		left: 0px;
+		width: 100%;
+		height: 100%;
+	}
+	.remote-cursor {
+		position: relative;
+		width: 40px;
+		height: 40px;
+		border: 0px;
+		background: url('data:image/svg+xml,<svg version="1.1" baseProfile="tiny" id="Capa_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 150 150" xml:space="preserve"><circle fill="none" stroke="#026676" stroke-width="5" stroke-linecap="round" stroke-miterlimit="10" stroke-dasharray="11.6143,11.6143" cx="51.4" cy="48" r="44.4"/><g id="Flecha_3"><g><g><polygon fill="#026676" points="143.5,97.5 92.9,103.6 70.9,149.6 51.1,45.3"/></g><g><polygon fill="#026676" points="143.5,97.5 92.9,103.6 70.9,149.6 51.1,45.3"/></g></g></g><polygon fill="#FEFEFE" points="58.9,59.5 72.8,134.6 88.6,100.4 "/></svg>');
+		z-index: 2147483647;
+	}
+	</style>
+</head>
+<body>
+<iframe id=i srcDoc="<duv>hello world</div>"></iframe>
+<div class="remote-cursor-container" data-exclude></div>	
+<ul id="sortable">
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 1</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 2</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 3</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 4</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 5</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 6</li>
+  <li class="ui-state-default"><span class="ui-icon ui-icon-arrowthick-2-n-s"></span>Item 7</li>
+</ul>
+ 
+<script >
+			//Dummy
+			var b = 0;
+		</script>
+		<div class="0">
+			<div class="0.0 mod">
+				mod
+				<div class="0.0.0 del">
+					0.0.0 del
+				</div>
+				<div class="0.0.0">
+					0.0.1
+				</div>
+			</div>
+			<div class="0.1">
+				<div class="0.1.0">
+					0.1.0
+				</div>
+				<div class="0.1.1 del">
+					0.1.1 del
+				</div>
+				<div class="0.1.2 del">
+					0.1.2 del
+				</div>
+			</div>
+		</div>
+		<form>
+		<textarea></textarea>
+		<select ><option>a <option>b</select>
+		<input type="text">
+		<input type="checkbox"> check
+		<input type="radio" name="a" value="1"> radio1
+		<input type="radio" name="a" value="2"> radio2
+		<button type="submit">NOOOO</button>
+		</form>
+		<div class="scroll">
+		<div>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent a sagittis risus, quis blandit augue. Proin id ullamcorper magna. Pellentesque dignissim sem ut ipsum egestas, et tempus eros tempus. Nullam eu maximus purus. Proin scelerisque sit amet sapien vel viverra. Cras bibendum non sapien ut rhoncus. Quisque viverra justo in augue pulvinar vestibulum. Proin dignissim ultrices orci, finibus faucibus tellus ullamcorper id. Ut lacinia mi odio, sed luctus dolor posuere eget.</div>
+
+		<div>Morbi faucibus rhoncus leo in fringilla. Maecenas eu metus libero. Pellentesque nec elit ipsum. Nam ac leo odio. Sed sit amet faucibus mauris, dignissim posuere turpis. Donec cursus feugiat erat, sed maximus metus mattis sed. Aenean ut mauris nec urna blandit venenatis. Duis pulvinar eros vel enim rhoncus elementum. Suspendisse faucibus sem vel facilisis hendrerit. Nam fringilla ac est vel mollis. Quisque volutpat finibus elit quis molestie. Aliquam erat volutpat. Mauris ornare ex orci, vel sagittis ipsum pellentesque a.</div>
+
+		<div>Sed in ornare nunc, quis feugiat nisl. Aliquam erat volutpat. Phasellus rhoncus augue a mauris porta bibendum. Integer nec mauris id urna sodales bibendum vitae ut felis. Nunc auctor, leo quis gravida blandit, magna quam maximus ligula, vulputate semper ex lacus vitae neque. Donec ut iaculis diam. Duis consequat eleifend velit. Nunc id odio fringilla, porttitor leo non, blandit justo. Nullam finibus erat ligula, et faucibus risus ornare eget.</div>
+
+		<div>In id elit metus. Aliquam cursus lacus ipsum, quis pellentesque quam viverra nec. Nulla facilisi. Donec vitae massa consequat quam gravida pellentesque vitae maximus est. Donec mollis egestas velit, quis ultrices augue semper et. Suspendisse potenti. Sed sit amet iaculis justo. Nulla consectetur id ante sed suscipit.</div>
+
+		<div>Etiam placerat suscipit venenatis. Cras nibh felis, ornare vel erat non, sagittis egestas erat. Pellentesque ante mauris, ultricies id augue quis, eleifend consectetur neque. Sed non odio odio. Nullam scelerisque cursus nisi non auctor. Aenean et ultricies purus. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Nulla ut lectus sapien.</div>
+		</div>
+</body>
+
+</html>
+<script src="swis.js"></script>
+<script>
+	//PUt incorrect tags on header
+	document.head.appendChild(document.createElement("img"));
+	
+	document.body.insertBefore(document.createTextNode("third"),document.body.children[0]);
+	document.body.insertBefore(document.createTextNode("second"),document.body.children[0]);
+	document.body.insertBefore(document.createTextNode("first"),document.body.children[0]);
+	
+	document.querySelector("input[type='text']").value = "initial value via js";
+	setTimeout (function () {
+		var nodes = document.getElementsByClassName ("mod");
+		for (var i=0;i<nodes.length;i++)
+		{
+			var el = document.createElement("div");
+			el.innerHTML = "-added-";
+			nodes[i].insertBefore(el, nodes[i].firstChild);
+		}
+	}, 5000);
+
+
+	var transport = {
+		send : function(data) {
+			//Convert to json and send
+			wnd.postMessage(data, "*");
+		}
+	};
+	
+	var wnd = window.open("viewer.html","viewer","width=400px");
+	var observer = new swis.Observer(transport,{chunk:200});
+	setTimeout(function(){
+		observer.observe("[data-exclude]");
+	},2000);	
+
+	window.addEventListener("message",function(message){
+		transport.onmessage(message.data);
+	});	
+
+	var remoteCursor;
+	observer.on("remotecursormove",function(data){
+		//Check if first cursor
+		if (!remoteCursor)
+		{
+			//Create new element
+			remoteCursor = document.createElement("div");
+			//Set class
+			remoteCursor.className = "remote-cursor";
+			//Insert into
+			document.querySelector('.remote-cursor-container').appendChild(remoteCursor);
+		}
+		//Set new position
+		remoteCursor.style["left"] = (data.x-20) + "px";
+		remoteCursor.style["top"] =  (data.y-15) + "px";
+	});
+	
+	
+</script>
