@@ -12,6 +12,7 @@
     "events": "^1.1.0",
     "inherits": "^2.0.1",
     "pako": "^1.0.1",
-    "promise-polyfill": "^6.0.1"
+    "promise-polyfill": "^6.0.1",
+    "useragent": "^2.1.9"
   }
 }
