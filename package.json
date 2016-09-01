@@ -9,10 +9,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "bowser": "^1.4.5",
     "events": "^1.1.0",
     "inherits": "^2.0.1",
     "pako": "^1.0.1",
-    "promise-polyfill": "^6.0.1",
-    "useragent": "^2.1.9"
+    "promise-polyfill": "^6.0.1"
   }
 }
