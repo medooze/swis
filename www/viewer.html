@@ -163,8 +163,6 @@
 
 <script src="swis.js"></script>
 <script>
-	var remoteCursor;
-	var remoteCursorContainer;
 	var source;
 	var transport = {
 		onload : null,
@@ -179,17 +177,7 @@
 	container.appendChild(iframe);
 	//Get mirror
 	var mirror = iframe.contentWindow.document;
-	//Container of the cursor
-	remoteCursorContainer = mirror.createElement("div");
-	remoteCursorContainer.style["pointer-events"] = "none";
-	remoteCursorContainer.style["position"] = "absolute";
-	remoteCursorContainer.style["width"] = "100%";
-	remoteCursorContainer.style["height"] = "100%";
-	remoteCursorContainer.style["overflow"] = "hidden";
-	remoteCursorContainer.style["left"] = "0px";
-	remoteCursorContainer.style["top"] =  "0px";
-	//Insert into document
-	container.appendChild(remoteCursorContainer);
+
 		
 	var reflector = new swis.Reflector(transport,{chunk:200,recording:true});
 	
@@ -210,33 +198,6 @@
 	reflector.on("init",function(e) {
 	});
 
-	reflector.on("remotecursormove",function(data){
-		//Check if first cursor
-		if (!remoteCursor)
-		{
-			
-			//Create new element
-			remoteCursor = mirror.createElement("div");
-			//Set absolute positioning
-			remoteCursor.style["pointer-events"] = "none";
-			remoteCursor.style["position"] = "absolute";
-			remoteCursor.style["width"] = "150px";
-			remoteCursor.style["height"] = "25px";
-			remoteCursor.style["border"] = "1px black solid";
-			remoteCursor.style["background-color"] = "green";
-			remoteCursor.style["color"] = "white";
-			remoteCursor.style["margin"] = "0px";
-			remoteCursor.style["padding"] = "0px";
-			remoteCursor.style["z-index"] = "99999999999999999999999999";
-			//Set text
-			remoteCursor.innerHTML = "^Remote Cursor";
-			//Insert into container
-			remoteCursorContainer.appendChild(remoteCursor);
-		}
-		//Set new position
-		remoteCursor.style["left"] = data.x + "px";
-		remoteCursor.style["top"] =  data.y + "px";
-	});
 	
 	var first = true;
 	reflector.on("resize",function(data){
@@ -245,8 +206,6 @@
 	       container.style.height = "600px";//(data.height+ (data.width <data.scrollWidth ? 8 : 0)) +"px";
 	       iframe.width = data.scrollWidth;
 	       iframe.height = data.scrollHeight;
-	       remoteCursorContainer.style.width = data.scrollWidth;
-	       remoteCursorContainer.style.height = data.scrollHeight;
 	});
 	
 	
@@ -257,8 +216,6 @@
 	reflector.on("scroll",function(data){
 		container.scrollTop = data.top;
 		container.scrollLeft = data.left;
-		remoteCursorContainer.scrollTop = data.top;
-		remoteCursorContainer.scrollLeft = data.left;
 	});
 	
 	//Drawing/not drawing

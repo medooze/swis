@@ -347,27 +347,68 @@ function Canvas(document)
 	// Create container
 	this.container = document.createElement('div');
 	this.container.style["pointer-events"] = "none";
-	this.container.style.position="absolute";
+	this.container.style.position="fixed";
 	this.container.style.overflow = 'hidden';
+	this.container.style.padding=0;
+	this.container.style.margin=0;
+	this.container.style.border=0;
 	this.container.style.left="0px";
 	this.container.style.top="0px";
 	this.container.style.width="100%";
 	this.container.style.height="100%";
 	this.container.style.zIndex="2147483646";
+	// Create scrollable
+	this.scrollable = document.createElement('div');
+	this.scrollable.style["pointer-events"] = "none";
+	this.scrollable.style.position="absolute";
+	this.scrollable.style.overflow = 'hidden';
+	this.scrollable.style.padding=0;
+	this.scrollable.style.margin=0;
+	this.scrollable.style.border=0;
+	this.scrollable.style.width="100%";
+	this.scrollable.style.height="100%";
+	this.scrollable.style.left="0px";
+	this.scrollable.style.top="0px";
+	this.scrollable.style.zIndex="2147483646";
 	// Create a blank div where we are going to put the canvas into.
 	this.canvas = document.createElement('canvas');
 	this.canvas.style["pointer-events"] = "none";
-	this.canvas.style.position="relative";
+	this.canvas.style.position="absolute";
 	this.canvas.style.overflow = 'visible';
 	this.canvas.style.left="0px";
 	this.canvas.style.top="0px";
-	this.canvas.style.zIndex="2147483645";
+	this.canvas.style.padding=0;
+	this.canvas.style.margin=0;
+	this.canvas.style.border=0;
+	this.canvas.style.height="0px";
+	this.canvas.style.width="0px";
+	this.canvas.height = 0;
+	this.canvas.width = 0;	
+	this.canvas.style.zIndex="2147483644";
+	//Create the div for the remote cursor
+	this.cursor = document.createElement('div');
+	this.cursor.style["pointer-events"] = "none";
+	this.cursor.style.position="absolute";
+	this.cursor.style.padding=0;
+	this.cursor.style.margin=0;
+	this.cursor.style.border=0;
+	this.cursor.style["margin-left"]="-25px";
+	this.cursor.style["margin-top"]="-25px";
+	this.cursor.style["background-image"] = "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" preserveAspectRatio=\"none\" x=\"0px\" y=\"0px\" width=\"500px\" height=\"500px\" viewBox=\"0 0 50 50\"><defs><g id=\"S_mbolo_1_0_Layer0_0_FILL\"><path fill=\"black\" fill-opacity=\"0.34901960784313724\" stroke=\"none\" d=\"M 8.85 -8.85 Q 5.2 -12.5 0 -12.5 -5.15 -12.5 -8.8 -8.85 -12.5 -5.2 -12.5 0 -12.5 5.15 -8.8 8.85 -5.15 12.5 0 12.5 5.2 12.5 8.85 8.85 12.5 5.15 12.5 0 12.5 -5.2 8.85 -8.85 Z\"/></g><g id=\"Layer0_1_FILL\"><path fill=\"#000000\" stroke=\"none\" d=\"M 38.5 40.8 L 25 25 25 45.6 29.7 41.15 33.05 50 35.4 49.05 32.1 40.25 38.5 40.8 Z\"/></g></defs><g transform=\"matrix( 1, 0, 0, 1, 25,25) \"><g transform=\"matrix( 1, 0, 0, 1, 0,0) \"><use xlink:href=\"#S_mbolo_1_0_Layer0_0_FILL\"/></g></g><g transform=\"matrix( 0.6999969482421875, 0, 0, 0.6999969482421875, 7.5,7.5) \"><use xlink:href=\"#Layer0_1_FILL\"/></g></svg>')";
+	this.cursor.style["background-position"] = "center";
+	this.cursor.style["background-size"] = "cover";
+	this.cursor.style.height="50px";
+	this.cursor.style.width="50px";
+	this.cursor.style.zIndex="2147483645";
+	
 	//Get context
 	this.context = this.canvas.getContext("2d");
 	//Resize
 	this.resize();
 	// Add int into the container
-	this.container.appendChild(this.canvas);
+	this.container.appendChild(this.scrollable);
+	this.scrollable.appendChild(this.canvas);
+	this.scrollable.appendChild(this.cursor);
 	//Add into body
 	document.body.appendChild(this.container);
 }
@@ -406,23 +447,35 @@ Canvas.prototype.createPath = function(color)
 	return path;
 };
 
-Canvas.prototype.resize = function()
+Canvas.prototype.remotecursormove = function(x,y)
 {
-	// Lookup the size the browser is displaying the canvas.
-	var displayWidth  = this.document.documentElement.scrollWidth;
-	var displayHeight = this.document.documentElement.scrollHeight;
+	//Set new position
+	this.cursor.style["left"] = x + "px";
+	this.cursor.style["top"] =  y + "px";
+};
 
+Canvas.prototype.scroll = function(top,left)
+{
+	//Set new position
+	this.scrollable.style["left"] = (-left) + "px";
+	this.scrollable.style["top"] =  (-top) + "px";
+};
+
+Canvas.prototype.resize = function(width,heigth)
+{
 	// Check if the this.canvas is not the same size.
-	if (this.canvas.width!==displayWidth || this.canvas.height!==displayHeight) 
+	if (this.canvas.width!==width || this.canvas.height!==heigth) 
 	{
 		// Make the this.canvas the same size
-		this.canvas.width  = displayWidth;
-		this.canvas.height = displayHeight;
-		this.canvas.style.width = displayWidth+"px";
-		this.canvas.style.height = displayHeight+"px";
+		this.canvas.width  = width;
+		this.canvas.height = heigth;
+		this.scrollable.style.width = width+"px";
+		this.scrollable.style.height = heigth+"px";
+		this.canvas.style.width = width+"px";
+		this.canvas.style.height = heigth+"px";
+		//Redraw
+		this.redraw();
 	}
-	//Redraw
-	this.redraw();
 };
 
 Canvas.prototype.redraw = function()
@@ -4739,7 +4792,12 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		//Get values
 		top  = typeof e.target.scrollTop  === "number" ? e.target.scrollTop  : e.currentTarget.scrollY || e.currentTarget.pageYOffset;
 		left = typeof e.target.scrollLeft === "number" ? e.target.scrollLeft : e.currentTarget.scrollX || e.currentTarget.pageXOffset;
-
+		
+		//If it is on the main window
+		if (!target)
+			//Scroll canvas
+			self.canvas.scroll(top,left);
+		
 		//Check if scroll event was produced by a RemoteScroll
 		if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
 		{
@@ -4854,12 +4912,16 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		var req = new XMLHttpRequest();
 		//Set handlers
 		req.addEventListener("load", function(){
-			//Check if we have changed
-			queue(MessageType.CSS,{
-				target	: id,
-				href	: url,
-				css	: this.responseText
-			});
+			//Ensure good status
+			if (this.status >= 200 && this.status < 400)
+			{
+				//Check if we have changed
+				queue(MessageType.CSS,{
+					target	: id,
+					href	: url,
+					css	: this.responseText
+				});
+			}
 		});
 		req.addEventListener("error", function(error){
 			//Errors may be launched while not finished processinng html, send on next tick
@@ -4904,14 +4966,19 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		var req = new XMLHttpRequest();
 		//Set handlers
 		req.addEventListener("load", function(){
-			//Ensure that the id is still valid
-			if (reverse.hasOwnProperty (id))
-				//Check if we have changed
-				postpone(MessageType.Image,{
-					target		: id,
-					type		: this.getResponseHeader('content-type'),
-					image		: this.response
-				});
+			//Ensure good status
+			if (this.status >= 200 && this.status < 400)
+			{
+				//Ensure that the id is still valid
+				if (reverse.hasOwnProperty (id))
+					//Check if we have changed
+					postpone(MessageType.Image,{
+						target		: id,
+						type		: this.getResponseHeader('content-type'),
+						image		: this.response
+					});
+				
+			} 
 			//Done
 			delete (self.inlining[id]);
 		});
@@ -5529,10 +5596,13 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	self.document.addEventListener ("mousemove", (this.onmousemove = function (event) {
 		//Get offset of event window
 		var offset = Utils.getWindowOffset(event.currentTarget.defaultView,self.wnd);
+		//Get scroll pos
+		var top  = self.wnd.scrollY || self.wnd.pageYOffset;
+		var left = self.wnd.scrollX  || self.wnd.pageXOffset;
 		//Send message back
 		queue(MessageType.MouseMove, {
-			x: event.clientX + offset.x,
-			y: event.clientY + offset.y
+			x: event.clientX + offset.x + left,
+			y: event.clientY + offset.y + top
 		});
 	}),true);
 	
@@ -5711,7 +5781,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			left: self.wnd.scrollX  || self.wnd.pageXOffset
 		});
 		//Redraw canvas
-		self.canvas && self.canvas.resize();
+		self.canvas && self.canvas.resize(self.document.body.scrollWidth,self.document.body.scrollHeight);
 		//Redraw highlights
 		self.highlighter && self.highlighter.redraw();
 	}),false);
@@ -5794,7 +5864,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 			//Mouse cursor
 			case MessageType.MouseMove:
 				//Move cursor
-				self.emit("remotecursormove",{x: message.x,y: message.y});
+				self.canvas.remotecursormove(message.x,message.y);
 				//Check if we are drawing
 				if (self.path)
 					//Add point
@@ -5902,12 +5972,16 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				//console.log("Requesting font",url);
 				//Set handlers
 				xhr.addEventListener("load", function(){
-					//Check if we have changed
-					queue(MessageType.Font,{
-						url	: url,
-						type	: this.getResponseHeader('content-type'),
-						font	: this.response
-					});
+					//Ensure good status
+					if (this.status >= 200 && this.status < 400)
+					{
+						//Check if we have changed
+						queue(MessageType.Font,{
+							url	: url,
+							type	: this.getResponseHeader('content-type'),
+							font	: this.response
+						});
+					}
 				});
 				//Load css
 				xhr.open("GET", url);
@@ -5961,6 +6035,8 @@ Observer.prototype.observe = function(exclude,wnd,href)
 	};
 	//Create canvas
 	this.canvas = new Canvas(self.document);
+	//Set initial size
+	this.canvas.resize(self.document.body.scrollWidth,self.document.body.scrollHeight);
 	//Create seleciton hihglighter
 	this.highlighter = new SelectionHighlighter(self.document);
 	//We are inited
@@ -6055,7 +6131,7 @@ var Bowser = require('bowser');
 
 var canvasColor = "#ffc820";
 
-var hoveredScrollBarStyle = "::-webkit-scrollbar{width:12px;height:12px;display:none}:hover::-webkit-scrollbar{display:inherit}::-webkit-scrollbar-button{width:0;height:0}::-webkit-scrollbar-corner{background-color:transparent}::-webkit-scrollbar-track{border:4px solid transparent;border-radius:50px;background-clip:content-box;background-color:transparent}::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:50px;background-clip:content-box;background-color:rgba(0,0,0,.2);min-height:40px}:hover::-webkit-scrollbar-track{background-color:rgba(0,0,0,.1)}:hover::-webkit-scrollbar-thumb{background-color:rgba(0,0,0,.3)}:hover::-webkit-scrollbar-track:hover{background-color:rgba(0,0,0,.2)}:hover::-webkit-scrollbar-thumb:hover{background-color:rgba(0,0,0,.5)}:hover::-webkit-scrollbar-thumb:active{background-color:rgba(0,0,0,.8)}";
+var hoveredScrollBarStyle = "::-webkit-scrollbar{width:12px;height:12px;display:inherit}:hover::-webkit-scrollbar{display:inherit}::-webkit-scrollbar-button{width:0;height:0}::-webkit-scrollbar-corner{background-color:transparent}::-webkit-scrollbar-track{border:4px solid transparent;border-radius:50px;background-clip:content-box;background-color:transparent}::-webkit-scrollbar-thumb{border:4px solid transparent;border-radius:50px;background-clip:content-box;background-color:rgba(0,0,0,.2);min-height:40px}:hover::-webkit-scrollbar-track{background-color:rgba(0,0,0,.1)}:hover::-webkit-scrollbar-thumb{background-color:rgba(0,0,0,.3)}:hover::-webkit-scrollbar-track:hover{background-color:rgba(0,0,0,.2)}:hover::-webkit-scrollbar-thumb:hover{background-color:rgba(0,0,0,.5)}:hover::-webkit-scrollbar-thumb:active{background-color:rgba(0,0,0,.8)}";
 
 function Reflector(transport,options)
 {
@@ -6296,10 +6372,17 @@ Reflector.prototype.reflect = function(mirror,params)
 		var req = new XMLHttpRequest();
 		//Set handlers
 		req.addEventListener("load", function(){
-			//Set css
-			style.innerHTML = resolveCSSURLs(style,url,this.responseText);
-			//Process media queries of the styles again
-			processStyles(target.ownerDocument);
+			//Ensure good status
+			if (this.status >= 200 && this.status < 400)
+			{
+				//Set css
+				style.innerHTML = resolveCSSURLs(style,url,this.responseText);
+				//Process media queries of the styles again
+				processStyles(target.ownerDocument);
+			} else {
+				//We have not been able to get the css, try to import it
+				style.src = url;
+			}
 		});
 		req.addEventListener("error", function(error){
 			//Print it
@@ -6806,8 +6889,6 @@ Reflector.prototype.reflect = function(mirror,params)
 		self.highlighter = new SelectionHighlighter(mirror);
 		//Prepare for resize
 		mirror.defaultView.addEventListener("resize", (self.onresize = function(e) {
-			//resize canvas
-			self.canvas.resize();
 			//Redraw highlights
 			self.highlighter.redraw();
 		}), true);
@@ -7158,6 +7239,8 @@ Reflector.prototype.reflect = function(mirror,params)
 									//Set document size
 									mirror.documentElement.style.width  = message.scrollWidth  + "px";
 									mirror.documentElement.style.height = message.scrollHeight + "px";
+									//resize canvas
+									self.canvas.resize(message.documentWidth,message.documentHeight);
 									//Event
 									self.emit("resize",{
 										width: message.width,
@@ -7191,10 +7274,7 @@ Reflector.prototype.reflect = function(mirror,params)
 								case MessageType.MouseMove:
 									//console.log("Mouse cursor",message);
 									//Move cursor
-									self.emit("remotecursormove",{
-										x: message.x,
-										y: message.y
-									});
+									self.canvas.remotecursormove(message.x,message.y);
 									break;
 								//Selection change
 								case MessageType.SelectionChange:
@@ -7341,25 +7421,33 @@ Reflector.prototype.reflect = function(mirror,params)
 	};
 	
 	this.onscroll = function(e) {
+		//Get target
+		var target = 0, top, left;
+		
+		//Get values
+		top  = typeof e.target.scrollTop  === "number" ? e.target.scrollTop  : e.currentTarget.scrollY;
+		left = typeof e.target.scrollLeft === "number" ? e.target.scrollLeft : e.currentTarget.scrollX;
+		
+		//If is is in the window
+		if (e.target!==self.mirror)
+		{
+			//Search elements id
+			target = self.map.get(e.target);
+			//If not found
+			if (!target)
+				//Ignore it
+				return;
+
+		}
+		
+		//If it is on the main window
+		if (!target)
+			//Scroll canvas
+			self.canvas.scroll(top,left);
+		
 		//Check if we are remotelly scrollgin
 		if (self.remoteScrolling)
 		{
-			//Get target
-			var target = 0, top, left;
-			//If is is in the window
-			if (e.target!==self.mirror)
-			{
-				//Search elements id
-				target = self.map.get(e.target);
-				//If not found
-				if (!target)
-					//Ignore it
-					return;
-				
-			}
-			//Get values
-			top  = typeof e.target.scrollTop  === "number" ? e.target.scrollTop  : e.currentTarget.scrollY;
-			left = typeof e.target.scrollLeft === "number" ? e.target.scrollLeft : e.currentTarget.scrollX;
 			//Check if scroll event was produced by a RemoteScroll
 			if (self.scrolling.hasOwnProperty(target) && self.scrolling[target].top===top && self.scrolling[target].left===left)
 			{
