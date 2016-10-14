@@ -4913,7 +4913,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		//Set handlers
 		req.addEventListener("load", function(){
 			//Ensure good status
-			if (this.status >= 200 && this.status < 400)
+			if (this.status >= 200 && this.status < 400 && this.status!==204)
 			{
 				//Check if we have changed
 				queue(MessageType.CSS,{
@@ -4967,14 +4967,15 @@ Observer.prototype.observe = function(exclude,wnd,href)
 		//Set handlers
 		req.addEventListener("load", function(){
 			//Ensure good status
-			if (this.status >= 200 && this.status < 400)
+			//Ensure content(!=204)
+			if (this.status >= 200 && this.status < 400 && this.status!==204)
 			{
 				//Ensure that the id is still valid
 				if (reverse.hasOwnProperty (id))
 					//Check if we have changed
 					postpone(MessageType.Image,{
 						target		: id,
-						type		: this.getResponseHeader('content-type'),
+						type		: this.getResponseHeader('content-type') || "image",
 						image		: this.response
 					});
 				
@@ -5270,6 +5271,10 @@ Observer.prototype.observe = function(exclude,wnd,href)
 					previousId = childId;
 				//Check if child node is text and it is empty or previous was a text node also
 				} else if ( child.nodeName ==="#text" && ((last && last.nodeName==="#text") || !child.textContent.length )) {
+					//Append for creating them async
+					texts.push(child); 
+				//Check if child node is col
+				} else if ( child.nodeName ==="col" ) {
 					//Append for creating them async
 					texts.push(child); 
 				//Normal child
@@ -5973,7 +5978,7 @@ Observer.prototype.observe = function(exclude,wnd,href)
 				//Set handlers
 				xhr.addEventListener("load", function(){
 					//Ensure good status
-					if (this.status >= 200 && this.status < 400)
+					if (this.status >= 200 && this.status < 400 && this.status!==204)
 					{
 						//Check if we have changed
 						queue(MessageType.Font,{
@@ -7240,7 +7245,7 @@ Reflector.prototype.reflect = function(mirror,params)
 									mirror.documentElement.style.width  = message.scrollWidth  + "px";
 									mirror.documentElement.style.height = message.scrollHeight + "px";
 									//resize canvas
-									self.canvas.resize(message.documentWidth,message.documentHeight);
+									self.canvas.resize(message.scrollWidth,message.scrollHeight);
 									//Event
 									self.emit("resize",{
 										width: message.width,
@@ -7854,15 +7859,16 @@ function createElementFromHTML (html)
 	var wrap = [0,"",""];
 	// From jquery
 	var wrapMap = {
-		option: [ 1, "<select multiple='multiple'>", "</select>" ],
-		legend: [ 1, "<fieldset>", "</fieldset>" ],
-		area: [ 1, "<map>", "</map>" ],
-		param: [ 1, "<object>", "</object>" ],
-		tbody: [ 1, "<table>", "</table>" ],
-		thead: [ 1, "<table>", "</table>" ],
-		tr: [ 2, "<table><tbody>", "</tbody></table>" ],
-		col: [ 2, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
-		td: [ 3, "<table><tbody><tr>", "</tr></tbody></table>" ]
+		option	: [ [0]		, "<select multiple='multiple'>", "</select>" ],
+		legend	: [ [0]		, "<fieldset>", "</fieldset>" ],
+		area	: [ [0]		, "<map>", "</map>" ],
+		param	: [ [0]		, "<object>", "</object>" ],
+		tbody	: [ [0]		, "<table>", "</table>" ],
+		thead	: [ [0]		, "<table>", "</table>" ],
+		tr	: [ [0,0]	, "<table><tbody>", "</tbody></table>" ],
+		colgroup: [ [1]		, "<table><tbody></tbody>", "</table>" ],
+		col	: [ [1,0]	, "<table><tbody></tbody><colgroup>", "</colgroup></table>" ],
+		td	: [ [0,0,0]	, "<table><tbody><tr>", "</tr></tbody></table>" ]
 	};
 
 	//Check if we need to wrap
@@ -7884,10 +7890,12 @@ function createElementFromHTML (html)
 	tmp.body.innerHTML = wrap[1]+html+wrap[2];
 	//Find element
 	var element = tmp.body.childNodes[0];
+	//Get path to element
+	var path = wrap[0];
 	//Unwrap
-	for (var i=0;i<wrap[0];++i)
+	for (var i=0;i<path.length;++i)
 		//Get child
-		element = element.childNodes[0];
+		element = element.childNodes[path[i]];
 	//Return element
 	return element;
 }
